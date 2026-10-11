@@ -59,7 +59,8 @@ if not losses:
 value = sum(losses) / len(losses)
 out = Path(a.out)
 out.parent.mkdir(parents=True, exist_ok=True)
-# perplexity = exp(loss)。loss が大きすぎるとオーバーフローするので 80 で頭打ちにする
+# perplexity = exp(loss)。math.exp は loss が約 709 を超えると OverflowError になるため、
+# 余裕をもって 80 で頭打ちにする (perplexity の上限は exp(80)≈5.5e34。'loss' はそのまま保存)
 out.write_text(json.dumps(
     {
         'loss': value,

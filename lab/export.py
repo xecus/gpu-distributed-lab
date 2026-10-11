@@ -2,7 +2,8 @@
 
 - 通常 (単一GPU / DDP): rank0.pt の 'model' に保存された state_dict を読み込む
   (DDP では全 rank が同じ重みを持つので rank 0 の分だけで十分)。
-- ZeRO (--zero): 重みが rank ごとに分割保存されているので、DeepSpeed の zero_to_fp32 で
+- ZeRO (--zero): FP32 のマスター重みが optimizer 状態として rank ごとに分割保存されている
+  (ZeRO-3 ではモデル重み自体も分割) ので、DeepSpeed の zero_to_fp32 で
   FP32 の完全な state_dict に組み立て直してから読み込む。
 - --lora: 学習時と同じ LoRA 構成でモデルを包んでから読み込み、adapter として保存する。
 FSDP のチェックポイントは fsdp_export.py を使う。
@@ -49,7 +50,7 @@ if a.lora:
     )
 
 if a.zero:
-    # ZeRO: 分割保存された重みを FP32 の1つの state_dict に統合する
+    # ZeRO: 分割保存された FP32 マスター重みを FP32 の1つの state_dict に統合する
     from deepspeed.utils.zero_to_fp32 import get_fp32_state_dict_from_zero_checkpoint
     state = get_fp32_state_dict_from_zero_checkpoint(a.checkpoint, tag='ds')
 else:

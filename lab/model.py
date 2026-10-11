@@ -1,6 +1,6 @@
 """自作の因果 (causal) Transformer と Megatron 方式の Tensor Parallel 化。
 
-A02 (単一GPU学習) 以降のすべての Part A 実験で使う小さな言語モデルです。
+A02・A03・A06〜A14 で lab.train が使う小さな言語モデルです (--model toy、既定)。
 A12 では apply_tp() により Attention と MLP を Tensor Parallel (TP) で分割します。
 Embedding・LayerNorm・出力層 (LM head) は分割せず、全 rank が同じ重みを持ちます (replicated)。
 """
@@ -13,7 +13,8 @@ class Block(nn.Module):
     """Pre-LN の Transformer ブロック: 因果 self-attention + 4倍幅の GELU MLP。
 
     bias を使わないのは TP 分割を単純にするためです
-    (行方向に分割した Linear の bias は all_reduce 後に1回だけ足す必要があり、扱いが面倒になる)。
+    (列分割なら bias も同じように分割し、行分割なら bias を all_reduce 後に1回だけ
+    足す必要があり、扱いが面倒になる)。
     """
 
     def __init__(self, dim, heads):

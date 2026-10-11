@@ -1,6 +1,9 @@
-"""A11 / B03 用: 全 rank 分の FSDP チェックポイントを Hugging Face 形式のディレクトリに書き出す。
+"""全 rank 分の FSDP チェックポイントを Hugging Face 形式のディレクトリに書き出す。
 
+B03 など実モデル (Hugging Face) を FSDP で学習したチェックポイント用
+(toy モデルの A11 チェックポイントは lab.train の --export-hf が拒否する)。
 FSDP では重みが全 rank に分割 (shard) されているので、torchrun で全 rank を起動して実行する。
+学習時と同じ rank 数で起動すること (各 rank が自分の meta_rank{rank}.json とシャードを読むため)。
 このスクリプト自体は変換処理を持たず、チェックポイントに保存された学習時の引数を読み出して
 lab.train を「--mode fsdp --resume ... --export-hf ...」付きで呼び直すだけの薄いラッパー。
 (学習と同じモデル構成・同じ FSDP の包み方で復元しないと state_dict が一致しないため)

@@ -1,4 +1,6 @@
-"""A04: NCCL 集団通信ベンチマーク (AllReduce / AllGather / ReduceScatter)。
+"""A04: 集団通信ベンチマーク (AllReduce / AllGather / ReduceScatter)。
+
+GPU では NCCL、--cpu 時は Gloo を使います (Gloo では ReduceScatter を省略)。
 
 メッセージサイズを変えながら、3種類の集団通信の latency と帯域を測ります。
 各集団通信は、まず数値的に正しい結果になるかを確認してから計測します。
@@ -46,7 +48,8 @@ for power in range(10, a.max_power + 1, 2):
     n = max(world, (2**power // 4) // world * world)
 
     for name in ['all_reduce', 'all_gather', 'reduce_scatter']:
-        # rank r は値 r+1 で埋めたテンソルを持つ -> 合計は 1+2+...+world = world*(world+1)/2
+        # rank r は値 r+1 で埋めたテンソルを持つ
+        # (合計系の期待値は world*(world+1)/2、all_gather では chunk r が r+1)
         x = torch.full((n,), float(rank + 1), device=dev)
 
         if name == 'all_reduce':
@@ -55,7 +58,8 @@ for power in range(10, a.max_power + 1, 2):
             fn()
             torch.testing.assert_close(x, torch.full_like(x, world * (world + 1) / 2))
             size = n * 4
-            # Ring AllReduce は ReduceScatter + AllGather なので各 rank が 2*(world-1)/world 倍を送る
+            # Ring AllReduce は ReduceScatter + AllGather なので、
+            # 各 rank が 2*(world-1)/world 倍を送る
             factor = 2 * (world - 1) / world
 
         elif name == 'all_gather':

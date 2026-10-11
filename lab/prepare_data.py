@@ -1,6 +1,6 @@
 """Part B 用データ準備: JSONL ({"text": str}) をトークン化し uint32 の memmap ファイルに書き出す。
 
-B01 以降の実モデル (Qwen3 など) 学習で使います。
+B01〜B03 の Qwen3 学習 (lab.train --tokens) で使います。
 - 各文書を train / val に決定的に振り分ける (文書テキストの SHA-256 で約 1/10 を val に)。
   乱数を使わないので、何度実行しても・どのマシンで実行しても同じ分割になる。
 - 文書ごとに末尾へ EOS トークンを付け、train.bin / val.bin に uint32 で連結して書く。

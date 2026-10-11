@@ -55,12 +55,14 @@ def ring_allreduce(x):
             # AllGather: 完成済みの chunk で上書きする
             chunks[recv_index].copy_(recv)
 
-    # ReduceScatter: ステップ i で rank は chunk (rank-i) を送り、chunk (rank-i-1) を受け取って加算。
+    # ReduceScatter: ステップ i で rank は chunk (rank-i) を送り、
+    # chunk (rank-i-1) を受け取って加算。
     # 例 world=4, rank=0: 送信 0,3,2 / 受信 3,2,1 -> 最後に受信した chunk 1 = (0+1)%4 が完成する
     for i in range(world - 1):
         exchange((rank - i) % world, (rank - i - 1) % world, True)  # ReduceScatter
 
-    # AllGather: 完成済みの chunk (rank+1) から送り始め、左隣の完成済み chunk を順に受け取って上書き
+    # AllGather: ステップ i で chunk (rank-i+1) を送り、chunk (rank-i) を受け取って上書き
+    # (左隣が中継してくる完成済み chunk)。例 world=4, rank=0: 送信 1,0,3 / 受信 0,3,2
     for i in range(world - 1):
         exchange((rank - i + 1) % world, (rank - i) % world, False)  # AllGather
 
