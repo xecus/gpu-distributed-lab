@@ -89,7 +89,51 @@ OMP_NUM_THREADS=1 python -m unittest discover -s tests -v
 
 ### 2. GPUノードで実行する
 
-まず[docs/aws.md](docs/aws.md)の手順でノードを用意します（IAM、EFA、セキュリティグループ、DLAMI）。そのあと:
+まず[docs/aws.md](docs/aws.md)の手順でノードを用意します（IAM、EFA、セキュリティグループ、DLAMI）。
+`setup.sh`はデフォルトで`python3.12`を使います（`PYTHON=python3.11 bash scripts/setup.sh`のように変更可）。
+ノードに次のaptパッケージが入っていることを確認してください。
+
+| パッケージ | 用途 |
+|---|---|
+| `python3.12` | venvのベースになるPython |
+| `python3.12-venv` | `python3.12 -m venv`に必要 |
+| `python3.12-dev` | `Python.h`。DeepSpeed import時にTritonがCヘルパーをJITコンパイルするため必須 |
+| `build-essential` | Tritonのコンパイルに使う`gcc` |
+| `gcc-14` `g++-14` | システムのgccが15以上の場合（Ubuntu 26.04など）。CUDA 12.8のnvccはGCC 14までしか対応しないため、DeepSpeed FusedAdamのJITビルドで使う |
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3.12-dev build-essential gcc-14 g++-14
+```
+
+Ubuntu 24.04以降のDLAMIなら標準リポジトリで入ります。22.04ベースでは`python3.12`が標準にないため、承認済みの手順で追加してください。
+
+#### CUDA 12.8 Toolkit
+
+DeepSpeedはimport時に`nvcc`の存在とCUDAメジャー版（PyTorchのcu128と同じ12）を確認し、初回にFusedAdamをJITビルドします。
+DLAMIに`/usr/local/cuda-12.8`がない場合（デフォルトがCUDA 13のDLAMIなど）は、NVIDIAのrunfileでToolkitだけを入れます。
+
+```bash
+wget https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda_12.8.1_570.124.06_linux.run
+sudo sh cuda_12.8.1_570.124.06_linux.run --silent --toolkit --toolkitpath=/usr/local/cuda-12.8 --no-man-page --override
+/usr/local/cuda-12.8/bin/nvcc --version   # release 12.8
+```
+
+`--toolkit`のみを指定するとドライバには触れません（`--override`はgcc版チェックを飛ばすため）。
+
+Ubuntu 26.04では`libxml2.so.2`がなく（`libxml2.so.16`のみ）、インストーラが起動しません。
+その場合はインストール中だけ一時的にリンクを張り、終わったら必ず消してください（ABIが異なるため常設しない）。
+
+```bash
+sudo ln -s libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2
+sudo sh cuda_12.8.1_570.124.06_linux.run --silent --toolkit --toolkitpath=/usr/local/cuda-12.8 --no-man-page --override
+sudo rm /usr/lib/x86_64-linux-gnu/libxml2.so.2 && sudo ldconfig
+```
+`launch.sh`は`CUDA_HOME`が未設定なら`/usr/local/cuda-12.8`を優先して使い、`gcc-14`があれば`CC=gcc-14 CXX=g++-14`を設定します。
+
+> **Ubuntu標準の`nvidia-cuda-toolkit`はaptで入れないでください。** Ubuntu版のNVIDIAユーザー空間ライブラリが入り、DLAMIのカーネルドライバと版がずれて`nvidia-smi`が`Driver/library version mismatch`になります。
+
+そのあと:
 
 ```bash
 bash scripts/setup.sh            # venv作成、CUDA 12.8版PyTorch、preflight
