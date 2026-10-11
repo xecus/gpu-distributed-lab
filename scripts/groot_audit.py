@@ -5,8 +5,10 @@
     torchrun から起動される前提で書かれているかをソースの文字列検索で確認する。
 
 合格の意味:
-    コードが WORLD_SIZE / LOCAL_RANK を読み、process group を初期化し、
-    自前でワーカープロセスを spawn しない (= torchrun と二重起動にならない) ことだけ。
+    experiment.py が WORLD_SIZE / LOCAL_RANK を読み、init_process_group を呼び、
+    GPU 数と world size の検証関数と Gr00tTrainer を含み、launch_finetune.py が
+    自前でワーカープロセスを spawn しない (= torchrun と二重起動にならない)、
+    という文字列レベルの条件を満たすことだけ。
     実行時の動作検証ではない (runtime_verified は常に False)。
 
 入力:

@@ -5,7 +5,8 @@
     JSONL 形式で保存する。私的なデータは一切不要。
 
 入力:
-    --revision  データセットの revision (再現性のため revisions.lock.json の SHA を渡すのが推奨)
+    --revision  データセットの revision (既定: main。再現性のため
+                revisions.lock.json の 'Salesforce/wikitext' の SHA を渡す)
     --out       出力先 JSONL (既定: data/wiki.jsonl)
 
 出力:

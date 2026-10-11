@@ -10,8 +10,10 @@
 
 出力 (--out 以下, {node} は環境変数 NODE_RANK):
     command_node{node}.log  コマンドの標準出力・標準エラー
-    status_node{node}.csv   状態・終了コード・wall 時間・推定コスト
-    終了コードは子プロセスのもの (timeout 時は 124)。
+    status_node{node}.csv   列: id, node_rank, nodes, gpus, status, returncode,
+                            wall_seconds, estimated_usd, command
+    終了コードは子プロセスのもの (timeout 時は 124)。子がシグナルで死んだ場合は
+    returncode が -N となり、シェルからは 256-N に見える。
 """
 import argparse, csv, json, os, subprocess, time
 from pathlib import Path
@@ -60,7 +62,8 @@ with (out / f'command_node{node}.log').open('w') as f:
         timed = True
 
 # ---------------------------------------------------------------------------
-# 状態の判定: ログ (と、あれば学習ログ) から OOM のメッセージを探す
+# 状態の判定: command ログと、あれば groot_run.py が書く train_node{node}.log から
+# OOM のメッセージを探す
 # ---------------------------------------------------------------------------
 elapsed = time.time() - t
 text = (out / f'command_node{node}.log').read_text(errors='replace')
@@ -78,7 +81,8 @@ status = (
     else 'error'
 )
 
-# 推定コスト = wall 時間 [h] x ノード数 x 1 ノードの時間単価 (単価未指定なら None)
+# 推定コスト = wall 時間 [h] x ノード数 x 1 ノードの時間単価
+# (--hourly-usd は 1 ノードあたりの単価。未指定なら CSV では空欄)
 row = {
     'id': a.id,
     'node_rank': node,
@@ -97,4 +101,5 @@ with (out / f'status_node{node}.csv').open('w', newline='') as f:
 
 print(json.dumps(row, indent=2))
 # 呼び出し元 (シェル) が失敗を検知できるよう、子プロセスの終了コードを引き継ぐ
+# (シグナル終了の -N はシェルからは 256-N に見える)
 raise SystemExit(code)

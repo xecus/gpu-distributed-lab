@@ -1,4 +1,6 @@
-"""複数の summary.json から strong/weak scaling 効率と概算 MFU を計算するスクリプト (A03)。
+"""複数の summary.json から strong/weak scaling 効率と概算 MFU を計算するスクリプト。
+
+    A03 の sweep や A14 / B02、マルチノード run の比較に使う。
 
 目的:
     GPU 数の異なる run の summary.json (summary.py の出力) を並べ、
@@ -51,7 +53,8 @@ for path, gpu in zip(a.runs, a.gpus):
     s = json.loads(Path(path, 'summary.json').read_text())
     items.append((gpu, s))
 
-# 先頭の run を基準にする (通常は 1 GPU)
+# 先頭の run を基準にする (--runs/--gpus の最初の要素。
+# A03 なら 1 GPU、マルチノード比較なら 8 GPU など)
 basegpu, bases = items[0]
 rows = []
 

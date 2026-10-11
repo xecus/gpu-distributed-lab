@@ -10,7 +10,7 @@
     --models  ダウンロードするモデル ID (複数可)
 
 出力:
-    各モデルについて「モデル ID と ローカルのスナップショットパス」を表示する。
+    各モデルについて「モデル ID とローカルのスナップショットパス」を表示する。
 """
 import argparse, json
 from huggingface_hub import snapshot_download

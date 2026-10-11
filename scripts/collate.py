@@ -6,15 +6,17 @@
 
 収集対象:
     - 学習メトリクス (environment_rank0.json + metrics_rank*_from*.csv)
-    - OOM / timeout などで学習メトリクスが無い run の status 行 (status_node0.csv)
+    - environment_rank0.json が無い run の status 行 (status_node0.csv)。
+      OOM / timeout の run のほか、GR00T (B04/B05) の run もここに入る
     - A01 の matmul ベンチマーク (matmul.csv)
     - A04 / A05 の通信ベンチマーク (bus_GBs 列を持つ CSV)
     - B04 / B05 の GR00T メトリクス (groot_metrics.csv)
 
 集計方針:
-    - tokens/s や step 時間は rank0 のメトリクスのみ平均する。
-      DDP では全 rank が同じ step を同期して進むため、rank0 を代表値とすれば十分で、
-      全 rank を混ぜると同じ step を重複して数えてしまう。
+    - tokens/s は rank0 の平均、step 時間は rank0 の中央値を使う。
+      lab.train が step_s を全 rank の最大値に all_reduce 済みで、tokens_s も
+      global batch から計算しているため、rank0 の値がそのまま全体の値になる
+      (全 rank を混ぜると同じ step を重複して数えてしまう)。
     - peak memory は全 rank ファイルの最大値を取る (rank ごとに偏りがあり得るため)。
 """
 import argparse, csv, json, re, statistics
@@ -47,7 +49,8 @@ for env in Path(a.runs).rglob('environment_rank0.json'):
         if 'rank0_' in f.name:
             m += data
 
-    # resume で区間が重複する場合があるため、step をキーに重複排除 (後勝ち)
+    # resume で区間が重複する場合があるため、step をキーに重複排除 (後勝ち)。
+    # 「後」は glob の列挙順で、resume の新しい区間が勝つとは限らない。
     m = list({r['step']: r for r in m}.values())
 
     # パスに含まれる実験 ID (A01, B05 など) のうち最後のものを採用
@@ -80,8 +83,9 @@ for env in Path(a.runs).rglob('environment_rank0.json'):
     rows.append(row)
 
 # ---------------------------------------------------------------------------
-# 2. 失敗 run: environment ファイルが無い run (例: モデル読み込み中の OOM) も
+# 2. environment_rank0.json が無い run (例: モデル読み込み中の OOM、GR00T の run) も
 #    status_node0.csv だけから 1 行として記録する。失敗も重要な実験結果。
+#    status は ok の場合もある (GR00T の run は 5. でも別の行になる)。
 # ---------------------------------------------------------------------------
 known = {r['variant'] for r in rows}
 for f in Path(a.runs).rglob('status_node0.csv'):

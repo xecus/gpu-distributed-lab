@@ -30,8 +30,8 @@ for gpus in [1, 2, 4, 8]:
         # weak  : 1 GPU あたり accum=2 で固定 -> GPU を増やすと global batch が増える
         accum = a.global_batch // gpus if kind == 'strong' else 2
 
-        # strong scaling では global batch が GPU 数で割り切れないと
-        # 「同じ global batch」の比較にならないためエラーにする
+        # accum が 1 未満 (global batch < GPU 数)、または strong scaling で global batch が
+        # GPU 数で割り切れない場合は「同じ global batch」の比較にならないためエラーにする
         if accum < 1 or (kind == 'strong' and a.global_batch % gpus):
             raise ValueError('invalid global batch')
 

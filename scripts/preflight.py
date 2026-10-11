@@ -12,7 +12,9 @@
 
 出力:
     runs/preflight.json に全結果を保存。GPU 数が --require-gpus 未満、
-    または pip check で依存衝突があれば非ゼロで終了する。
+    または PATH 上の python で実行した pip check が非ゼロ (未インストールの 127 を含む)
+    なら非ゼロで終了する。pip check は sys.executable ではなく PATH 上の python で
+    実行されるので、別の環境を検査している可能性がある点に注意。
 """
 import argparse, json, os, platform, subprocess, sys
 from pathlib import Path

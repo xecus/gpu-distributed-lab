@@ -7,15 +7,18 @@
     GR00T は torch / transformers などの依存バージョンを独自に固定しており、
     ラボ本体の venv と混ぜると衝突する。そこで upstream リポジトリ付属の
     uv 環境 (`uv run`) の中で実行し、依存を完全に分離する。
-    また torchrun はこのスクリプトが 1 回だけ起動する (launch.sh 経由で
-    torchrun を二重に重ねない)。
+    複数 GPU のときは、このスクリプトが uv 環境内の torchrun を直接 1 回だけ起動する
+    (launch.sh 経由で torchrun を二重に重ねない)。1 GPU では torchrun を使わない。
 
 入力 (主なもの):
     --repo / --dataset / --modality  GR00T リポジトリ・データセット・modality 設定
-    --gpus     合計 GPU 数 (1 or 8 の倍数。マルチノード時は NNODES*8)
+    --gpus     合計 GPU 数 (1/8/16/24/32/40 のいずれか、既定 1。
+               マルチノード時は NNODES*8 と一致必須)
     --steps / --batch                学習ステップ数と global batch
     --resume   checkpoint から再開
-    --allow-multinode-smoke          groot_audit.py 合格後にのみマルチノードを許可
+    --allow-multinode-smoke (--multinode-verified)
+               NNODES>1 で必須の明示フラグ。groot_audit.py の合格を人が確認してから付ける
+               (スクリプトは audit 結果を検査しない)
     --dry-run  実行せずにコマンドだけ表示
     環境変数 NNODES / NODE_RANK / MASTER_ADDR / MASTER_PORT / RUN_ID (マルチノード時)
 

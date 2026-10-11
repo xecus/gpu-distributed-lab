@@ -6,11 +6,12 @@
     <run>/summary.json に保存する。scaling.py はこの summary.json を入力にする。
 
 なぜ rank0 だけか:
-    DDP などでは全 rank が同期して同じ step を進むので、step 時間や tokens/s は
-    rank0 を代表値とすれば十分。メモリも rank0 のみ (全 rank の最大は collate.py で見る)。
+    lab.train が step_s を全 rank の最大値に all_reduce 済みで、tokens_s も
+    global batch から計算しているため、rank0 の値がそのまま全体の値になる。
+    メモリは rank0 のみ (全 rank の最大は collate.py で見る)。
 
 コストについて:
-    1 ノード 8 GPU を前提とした wall-clock ベースの概算。
+    wall-clock ベースの概算 (USD はノード単価 x ノード数、gpu_hours は 1 ノード 8 GPU 前提)。
     実際の請求額は後で aws/cost.py (Cost Explorer) と突き合わせること。
 
 入力:
@@ -38,7 +39,8 @@ for f in Path(a.run).glob('metrics_rank0_from*.csv'):
 if not rows:
     raise SystemExit('no rank0 CSV')
 
-# resume の区間は重複し得る: step をキーにして後から読んだ行を優先する
+# resume の区間は重複し得る: step をキーにして後から読んだ行を優先する。
+# 「後」は glob の列挙順で、resume の新しい区間が勝つとは限らない。
 rows = list({r['step']: r for r in rows}.values())
 seconds = [float(r['step_s']) for r in rows]
 

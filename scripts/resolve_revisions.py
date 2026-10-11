@@ -3,7 +3,9 @@
 目的:
     Hugging Face の "main" や GitHub の main ブランチは日々更新されるため、
     セットアップ前にその時点の SHA を取得して configs/revisions.lock.json に固定 (pin) する。
-    以降は download_models.py / download_corpus.py / groot_run.py がこの SHA を使うので、
+    以降は download_models.py / groot_run.py が lock を直接読み、download_corpus.py
+    (--revision) や groot_setup.sh (GROOT_COMMIT)、lab.train (--revision) には
+    lock の値を渡して使う。こうすることで、
     全ノード・全受講者が同じ重みとコードで実験でき、結果を再現できる。
 
     読み取り専用のメタデータ API を叩くだけで、何もダウンロードしない。

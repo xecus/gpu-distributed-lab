@@ -8,7 +8,8 @@
 #
 # 入力:
 #   --repo      GR00T リポジトリのパス
-#   --modality  modality 設定ファイル (例: examples/SO100/so100_config.py)
+#   --modality  modality 設定ファイル (例: examples/SO100/so100_config.py)。
+#               相対パスは --repo ではなく cwd 基準で解決される
 #   それ以外の引数は open_loop_eval.py にそのまま渡る。
 import argparse, runpy, sys, importlib.util
 from pathlib import Path
