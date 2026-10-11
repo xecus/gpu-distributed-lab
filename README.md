@@ -8,7 +8,7 @@ AWSの8GPUノード（H100 / H200 / B200）を使い、分散学習を**手を�
 - 最大構成：8GPUノード × 5台 = 40GPU
 
 > [!WARNING]
-> **GPUでの検証は途中です。** H100×8の単一ノードで受け入れテストの一部（A02、A04〜A10）が通った段階で、EFA・マルチノード・実モデルweightでの学習はまだ実行していません。
+> **GPUでの検証は途中です。** H100×8の単一ノードで受け入れテスト（`scripts/acceptance.sh`）が通った段階で、EFA・マルチノード・実モデルweightでの学習はまだ実行していません。
 > 期待結果はすべて理論上の仮説で、`results/experiment_results.csv`の実測欄は空です。
 > 検証済みの範囲と未検証の範囲は[docs/validation.md](docs/validation.md)にまとめています。
 
