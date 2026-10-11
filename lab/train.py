@@ -251,10 +251,9 @@ def main():
             raise ValueError('TP requires >=2 GPU processes')
         if a.model != 'toy':
             raise ValueError('TP lesson supports the toy model only')
-        # 注: 下のエラーメッセージは主語が逆。正しくは
-        # 「world size が FFN 次元 (4*dim) を割り切る必要がある」。
+        # MLP の中間次元 (4*dim) を world 個に均等に分割できる必要がある
         if (4 * a.dim) % world:
-            raise ValueError('FFN dim must divide world size')
+            raise ValueError('world size must divide FFN dim (4*dim)')
         model = apply_tp(model, world)
 
     # DDP: backward 中にバケット単位で勾配を all_reduce し、計算と通信を重ねる。
