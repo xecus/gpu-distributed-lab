@@ -6,11 +6,10 @@
 
 収集対象:
     - 学習メトリクス (environment_rank0.json + metrics_rank*_from*.csv)
-    - environment_rank0.json が無い run の status 行 (status_node0.csv)。
-      OOM / timeout の run のほか、GR00T (B04/B05) の run もここに入る
+    - environment_rank0.json が無い run の status 行 (status_node0.csv)。OOM / timeout の run など
     - A01 の matmul ベンチマーク (matmul.csv)
     - A04 / A05 の通信ベンチマーク (bus_GBs 列を持つ CSV)
-    - B04 / B05 の GR00T メトリクス (groot_metrics.csv)
+    - B04 / B05 の GR00T メトリクス (groot_metrics.csv)。同じ run の status_node0.csv と 1 行にまとめる
 
 集計方針:
     - tokens/s は rank0 の平均、step 時間は rank0 の中央値を使う。
@@ -83,14 +82,14 @@ for env in Path(a.runs).rglob('environment_rank0.json'):
     rows.append(row)
 
 # ---------------------------------------------------------------------------
-# 2. environment_rank0.json が無い run (例: モデル読み込み中の OOM、GR00T の run) も
+# 2. environment_rank0.json が無い run (例: モデル読み込み中の OOM) も
 #    status_node0.csv だけから 1 行として記録する。失敗も重要な実験結果。
-#    status は ok の場合もある (GR00T の run は 5. でも別の行になる)。
+#    GR00T の run (groot_metrics.csv がある) は 5. で status と合わせて 1 行にまとめる。
 # ---------------------------------------------------------------------------
 known = {r['variant'] for r in rows}
 for f in Path(a.runs).rglob('status_node0.csv'):
-    # 既に 1. で拾った run はスキップ
-    if str(f.parent) in known:
+    # 既に 1. で拾った run と、5. で扱う GR00T の run はスキップ
+    if str(f.parent) in known or (f.parent / 'groot_metrics.csv').exists():
         continue
     r = list(csv.DictReader(f.open()))[0]
     rows.append(dict(
@@ -155,13 +154,21 @@ for f in Path(a.runs).rglob('groot_metrics.csv'):
     wall = f.parent / 'wall_node0.json'
     values = json.loads(wall.read_text()) if wall.exists() else {}
 
+    # run_record.py が同じディレクトリに書いた status (ノード数・推定コストなど)。
+    # 2. ではこの run をスキップしているので、ここで 1 行にまとめる。
+    node_status = f.parent / 'status_node0.csv'
+    status = list(csv.DictReader(node_status.open()))[0] if node_status.exists() else {}
+
     rows.append(dict(
         id=ident,
         variant=str(f.parent),
         model='nvidia/GR00T-N1.7-3B',
-        gpus=values.get('gpus', ''),
-        status=values.get('status', 'ok' if data else 'no_metrics'),
-        wall_s=values.get('elapsed_s', ''),
+        nodes=status.get('nodes', ''),
+        gpus=values.get('gpus', status.get('gpus', '')),
+        status=values.get('status', status.get('status', 'ok' if data else 'no_metrics')),
+        # 他の行や estimated_usd と同じく run_record.py の wall 時間を優先する
+        wall_s=status.get('wall_seconds', values.get('elapsed_s', '')),
+        estimated_usd=status.get('estimated_usd', ''),
         notes='VLA samples/s and action MAE/MSE in groot_metrics.csv/open_loop_metrics.json; tokens_s/MFU intentionally blank'))
 
 # ---------------------------------------------------------------------------

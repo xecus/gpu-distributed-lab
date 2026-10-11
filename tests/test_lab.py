@@ -221,6 +221,40 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(r['InstanceType'],'p6-b200.48xlarge')
             self.assertEqual(len(r['NetworkInterfaces']),8)
 
+    def test_collate_groot_single_row(self):
+        """GR00T の run は status と metrics が同じディレクトリにあっても 1 行にまとめる。
+
+        以前は status_node0.csv 由来の行と groot_metrics.csv 由来の行の 2 行が出ていた。
+        OOM などで environment が無い通常の run は、従来どおり status から 1 行作る。
+        """
+        import csv
+        header='id,node_rank,nodes,gpus,status,returncode,wall_seconds,estimated_usd,command\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            runs=Path(tmp)/'runs'
+            groot=runs/'B04'
+            oom=runs/'B01'/'zero3_1node'
+            groot.mkdir(parents=True)
+            oom.mkdir(parents=True)
+            (groot/'status_node0.csv').write_text(header+'B04,0,1,8,ok,0,1234.5,40.1,cmd\n')
+            (groot/'groot_metrics.csv').write_text('step,loss\n10,0.5\n')
+            (groot/'wall_node0.json').write_text('{"gpus": 8, "status": "ok", "elapsed_s": 1200.0}')
+            (oom/'status_node0.csv').write_text(header+'B01,0,1,8,oom,1,300,9.8,cmd\n')
+            out=Path(tmp)/'out.csv'
+            subprocess.run(
+                [sys.executable,'scripts/collate.py','--runs',str(runs),'--out',str(out)],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+            )
+            rows=list(csv.DictReader(out.open()))
+            by_id={}
+            for row in rows:
+                by_id.setdefault(row['id'],[]).append(row)
+            self.assertEqual(len(by_id['B04']),1)
+            self.assertEqual(by_id['B04'][0]['estimated_usd'],'40.1')
+            self.assertEqual(by_id['B04'][0]['nodes'],'1')
+            self.assertEqual(by_id['B01'][0]['status'],'oom')
+
 
 if __name__=='__main__':
     unittest.main()

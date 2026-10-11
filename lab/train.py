@@ -200,9 +200,9 @@ def main():
 
     # 並列化ラッパーで包む前に、全パラメータ数 (LoRA で凍結した分も含む) を数えて
     # 環境 JSON に記録する。
-    # 注意: 実モデル + zero3 では from_pretrained 時点で既に分割済み (param.data が空) のため
-    # numel() が 0 になり、この値は正しくない (本来のサイズは p.ds_numel にある)。
-    params = sum(p.numel() for p in model.parameters())
+    # 実モデル + zero3 では from_pretrained 時点で既に分割済み (param.data が空) のため
+    # numel() が 0 になる。DeepSpeed が持たせる ds_numel (分割前の要素数) を優先して使う。
+    params = sum(getattr(p, 'ds_numel', p.numel()) for p in model.parameters())
 
     # =====================================================================
     # 並列化ラッパー
@@ -251,10 +251,9 @@ def main():
             raise ValueError('TP requires >=2 GPU processes')
         if a.model != 'toy':
             raise ValueError('TP lesson supports the toy model only')
-        # 注: 下のエラーメッセージは主語が逆。正しくは
-        # 「world size が FFN 次元 (4*dim) を割り切る必要がある」。
+        # MLP の中間次元 (4*dim) を world 個に均等に分割できる必要がある
         if (4 * a.dim) % world:
-            raise ValueError('FFN dim must divide world size')
+            raise ValueError('world size must divide FFN dim (4*dim)')
         model = apply_tp(model, world)
 
     # DDP: backward 中にバケット単位で勾配を all_reduce し、計算と通信を重ねる。
