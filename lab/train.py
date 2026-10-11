@@ -167,7 +167,9 @@ def main():
     def state_context():
         if a.mode=='fsdp':
             from torch.distributed.fsdp import StateDictType,LocalStateDictConfig,FullyShardedDataParallel as FSDP
-            return FSDP.state_dict_type(model,StateDictType.LOCAL_STATE_DICT,LocalStateDictConfig(offload_to_cpu=True))
+            # offload_to_cpu=True breaks on torch 2.7: ShardedTensor.cpu() drops requires_grad and fails
+            # its metadata check. torch.save copies the GPU shard to host anyway.
+            return FSDP.state_dict_type(model,StateDictType.LOCAL_STATE_DICT,LocalStateDictConfig())
         return contextlib.nullcontext()
     def bare():return model.module if a.mode=='ddp' else model # unwrap DDP: no 'module.' key prefix
     # Every rank writes its own shard (rank{r}.pt or DeepSpeed files) plus meta_rank{r}.json.
