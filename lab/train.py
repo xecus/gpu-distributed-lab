@@ -118,7 +118,9 @@ def main():
         import deepspeed
         engine,opt,_,_=deepspeed.initialize(model=model,model_parameters=[p for p in model.parameters() if p.requires_grad],config=ds_config)
         model=engine
-    else:opt=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=a.lr)
+    # TP mixes DTensor (sharded q/k/v/proj/fc1/fc2) and plain tensors (replicated embeddings, norms, head);
+    # the multi-tensor foreach kernels reject mixed lists, so update parameters one by one.
+    else:opt=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=a.lr,foreach=False if a.mode=='tp' else None)
     if a.mode=='manual' and active:
         for p in model.parameters():dist.broadcast(p.data,0)
     tokens=None

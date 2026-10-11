@@ -14,7 +14,7 @@ for (n,p),(name,q) in zip(ref.named_parameters(),tp.named_parameters()):
  assert n==name
  grad=q.grad.full_tensor() if hasattr(q.grad,'full_tensor') else q.grad
  torch.testing.assert_close(p.grad,grad,rtol=1e-3,atol=1e-5)
-torch.optim.SGD(ref.parameters(),lr=.01).step();torch.optim.SGD(tp.parameters(),lr=.01).step()
+torch.optim.SGD(ref.parameters(),lr=.01).step();torch.optim.SGD(tp.parameters(),lr=.01,foreach=False).step() # mixed DTensor/Tensor
 for p,q in zip(ref.parameters(),tp.parameters()):
  full=q.full_tensor() if hasattr(q,'full_tensor') else q
  torch.testing.assert_close(p,full,rtol=1e-4,atol=1e-5)
