@@ -1,4 +1,4 @@
-"""EC2 起動リクエスト (JSON) を生成するだけのスクリプト。RunInstances は絶対に呼ばない。
+r"""EC2 起動リクエスト (JSON) を生成するだけのスクリプト。RunInstances は絶対に呼ばない。
 
 目的:
     8 GPU ノード 1 台分の `aws ec2 run-instances --cli-input-json` 用 JSON を作る。
@@ -7,10 +7,11 @@
     高額な GPU インスタンスを誤って起動する事故を防ぐ。
 
 使い方の例:
-    python aws/plan.py --ami ami-xxxx --subnet subnet-xxxx --sg sg-xxxx \\
+    python aws/plan.py --ami ami-xxxx --subnet subnet-xxxx --sg sg-xxxx \
         --profile my-instance-profile --placement my-cluster-pg --run-id lab-20261001
 
-    複数ノードが必要なときは、ノードごとにこのスクリプトを実行する (1 リクエスト = 1 ノード)。
+    1 リクエスト = 1 ノード。複数ノードは同じ JSON・同じ RUN_ID のまま NODE_LABEL を変えて
+    launch_after_approval.sh を 1 台ずつ明示的に実行する (docs/aws.md)。
 
 生成される JSON のポイント:
     - MinCount = MaxCount = 1 (1 ノードずつ)
@@ -23,9 +24,11 @@ import argparse,json
 from pathlib import Path
 
 # インスタンスタイプごとの (GPU 名, ノードあたりのネットワークカード数)。
-# EFA インターフェースはネットワークカード 1 枚につき 1 つ作るので、カード数がそのまま EFA 数になる。
+# EFA インターフェースはネットワークカード 1 枚につき 1 つ作るので、
+# カード数がそのまま EFA 数になる。
 # 値は次のコマンドで確認すること:
-#   aws ec2 describe-instance-types --query 'InstanceTypes[0].NetworkInfo.MaximumNetworkCards'
+#   aws ec2 describe-instance-types --instance-types p5.48xlarge \
+#     --query 'InstanceTypes[0].NetworkInfo.MaximumNetworkCards'
 INSTANCES={
     'p5.48xlarge':('H100 80GB',32),
     'p5e.48xlarge':('H200 141GB',32),
@@ -62,9 +65,9 @@ gpu,cards=INSTANCES[a.instance_type]
 cards=a.network_cards or cards
 
 req={
-    # 起動台数は必ず 1 台。複数ノードはノードごとに別リクエストにする。
     'ImageId':a.ami,
     'InstanceType':a.instance_type,
+    # 起動台数は必ず 1 台。複数ノードは NODE_LABEL を変えて同じ JSON で 1 台ずつ起動する。
     'MinCount':1,
     'MaxCount':1,
     'IamInstanceProfile':{'Name':a.profile},

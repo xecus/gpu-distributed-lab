@@ -12,8 +12,10 @@
 #   bash scripts/launch.sh lab.train --mode ddp --out runs/A07
 #
 #   # 2 ノード (各ノードで NODE_RANK だけ変えて実行する)
-#   NNODES=2 NODE_RANK=0 MASTER_ADDR=10.0.0.11 RUN_ID=exp1 bash scripts/launch.sh lab.train --mode ddp
-#   NNODES=2 NODE_RANK=1 MASTER_ADDR=10.0.0.11 RUN_ID=exp1 bash scripts/launch.sh lab.train --mode ddp
+#   NNODES=2 NODE_RANK=0 MASTER_ADDR=<node0のprivate IP> RUN_ID=<RUN_ID> \
+#     bash scripts/launch.sh lab.train --mode ddp
+#   NNODES=2 NODE_RANK=1 MASTER_ADDR=<node0のprivate IP> RUN_ID=<RUN_ID> \
+#     bash scripts/launch.sh lab.train --mode ddp
 #
 #   第 1 引数は「python -m で実行するモジュール名」、残りはそのモジュールへの引数。
 #

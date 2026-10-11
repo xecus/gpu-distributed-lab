@@ -7,7 +7,8 @@
 #
 #   例: bash scripts/part_a.sh A07 --steps 100
 #       NPROC=4 bash scripts/part_a.sh A08
-#       NNODES=2 NODE_RANK=0 MASTER_ADDR=10.0.0.11 RUN_ID=exp1 bash scripts/part_a.sh A13
+#       NNODES=2 NODE_RANK=0 MASTER_ADDR=<node0のprivate IP> RUN_ID=<RUN_ID> \
+#         bash scripts/part_a.sh A13
 #
 #   追加引数は各コマンドの末尾に付くので、--out などを後から指定すると既定値を上書きできる。
 #
@@ -22,13 +23,13 @@ lesson=${1:?A01..A14 required}
 shift
 
 case "$lesson" in
-  # A01: CUDA の基礎 (デバイス情報・テンソル演算・同期など)。1 プロセスで直接実行。
+  # A01: GPU 情報の記録と FP32/BF16 行列積の計測 (CUDA event)。1 プロセスで直接実行。
   A01) exec python -m lab.cuda_basics "$@" ;;
 
   # A02: 1 GPU での学習 (以降の分散学習と比べる基準)。NPROC=1 に固定。
   A02) NPROC=1 bash scripts/launch.sh lab.train --mode single --out runs/A02 "$@" ;;
 
-  # A03: バッチサイズを変えながらスループットとメモリ使用量を測る。
+  # A03: GPU 数 1/2/4/8 で strong/weak scaling を測る (batch_sweep.py)。
   A03) exec python scripts/batch_sweep.py "$@" ;;
 
   # A04: 集団通信 (all-reduce, all-gather など) の帯域ベンチマーク。
@@ -58,14 +59,15 @@ case "$lesson" in
   # A12: テンソル並列 (1 つの層の行列を GPU 間で分割)。
   A12) bash scripts/launch.sh lab.train --mode tp --out runs/A12 "$@" ;;
 
-  # A13: 複数ノードでの DDP。NNODES を明示的に指定しないとエラーにする
-  #      (うっかり 1 ノードで実行して「複数ノードの結果」と誤解しないように)。
+  # A13: マルチノード DDP (8〜40 GPU)。ノード数 (1〜5) を必ず明示させるため、
+  #      NNODES 未設定ならエラーにする。
   A13)
     : "${NNODES:?set 1..5}"
     bash scripts/launch.sh lab.train --mode ddp --sampler --out runs/A13 "$@"
     ;;
 
-  # A14: DDP + プロファイラ。計算と通信の重なり (オーバーラップ) を観察する。
+  # A14: DDP + プロファイラ。MFU・スケーリング効率と、計算/通信の重なりを
+  #      タイムラインで確認する。
   A14) bash scripts/launch.sh lab.train --mode ddp --sampler --profile --out runs/A14 "$@" ;;
 
   # それ以外のレッスン番号はエラー。

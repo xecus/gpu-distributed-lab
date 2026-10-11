@@ -106,8 +106,8 @@ class TrainingTests(unittest.TestCase):
             b=self.load(split/'step_4/rank0.pt')
 
             # 許容誤差 0 で完全一致を要求する。モデルだけでなく、オプティマイザ状態・
-            # 乱数状態・データ位置まで正しく保存/復元できていないと一致しない。
-            # スポットインスタンスの中断などから安全に再開できることの保証になる。
+            # 乱数状態が正しく復元され、データ列が step から決定的に再現されていないと
+            # 一致しない。(CPU・single モードでの確認。分散モードの再開は acceptance.sh で確認)
             for k in a['model']:
                 torch.testing.assert_close(a['model'][k],b['model'][k],rtol=0,atol=0)
 
@@ -185,7 +185,7 @@ class TrainingTests(unittest.TestCase):
         self.assertIn(b'Refusing',r.stderr)
 
     def test_plan_never_launches(self):
-        """plan.py が JSON を生成するだけで、内容 (台数・EFA 数) が正しいことを確認する。"""
+        """plan.py が生成する JSON の内容 (MaxCount=1、タイプ別の EFA 数) を確認する。"""
         with tempfile.TemporaryDirectory() as tmp:
             dest=Path(tmp)/'plan.json'
 

@@ -1,8 +1,9 @@
 """Qwen3 学習経路の CPU 統合テスト。
 
 本物の 8B / 32B の重みは使わず、Qwen3 と同じアーキテクチャの「ごく小さなランダム初期化モデル」を
-その場で作って lab.train に通す。Part B (B01-B03) と同じコード経路
-(Hugging Face モデルの読み込み → トークン列 train.bin の読み込み → 学習 → CSV / メタ情報の保存)
+その場で作って lab.train に通す。Part B (B01-B03) と同じ HF モデル読み込み・記録の経路
+(Hugging Face モデルの読み込み → トークン列 train.bin の読み込み → 学習 → CSV / メタ情報の保存。
+並列化は single モード)
 が壊れていないことを、GPU なしで数十秒で確認するのが目的。
 """
 import unittest,tempfile,os,subprocess,sys
@@ -18,7 +19,8 @@ ROOT=Path(__file__).resolve().parents[1]
 class QwenCPUIntegration(unittest.TestCase):
 
     def test_qwen_training_path_and_csv(self):
-        """小さな Qwen3 を 4 ステップ学習し、メトリクス CSV とメタ情報が正しく出ることを確認する。"""
+        """小さな Qwen3 を 4 ステップ学習し、メトリクス CSV とメタ情報が
+        正しく出ることを確認する。"""
         with tempfile.TemporaryDirectory() as tmp:
             tmp=Path(tmp)
             model=tmp/'model'
@@ -70,7 +72,8 @@ class QwenCPUIntegration(unittest.TestCase):
             self.assertEqual(len(rows),4)
             self.assertTrue(all(float(r['loss'])>0 for r in rows))
 
-            # チェックポイントのメタ情報に、学習データの SHA-256 (16 進 64 文字) が記録されていること。
+            # チェックポイントのメタ情報に、学習データの SHA-256 (16 進 64 文字) が
+            # 記録されていること。
             # 再開時に「同じデータで続きを学習しているか」を検証するために使われる。
             meta=json.loads((out/'step_4/meta_rank0.json').read_text())
             self.assertEqual(len(meta['data_sha256']),64)

@@ -48,6 +48,6 @@ git lfs pull
 # -----------------------------------------------------------------------------
 uv sync --frozen --python 3.12
 
-# 動作確認: ファインチューニング用 CLI のヘルプを記録しておく。
-# 上流の引数が変わっていないかを、後で groot_run.py と突き合わせるため。
+# 動作確認: ファインチューニング用 CLI のヘルプを記録として残す。
+# (groot_run.py も実行時に --help で必要なフラグを検査する)
 uv run python gr00t/experiment/launch_finetune.py --help > ../../runs/groot-cli-help.txt

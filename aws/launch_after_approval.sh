@@ -8,8 +8,10 @@
 #   (このスクリプトが条件を満たしても、利用者本人の明示的な承認は別途必要)
 #
 # 使い方:
-#   AWS_PAID_RESOURCE_APPROVAL=I_HAVE_EXPLICIT_USER_APPROVAL \
-#   AWS_REGION=us-east-1 RUN_ID=lab-20261001 REQUEST_JSON=aws/launch.local.json NODE_LABEL=0 \
+#   ※ リージョン・タイプ・台数・料金・時間について明示的な承認を得た後にだけ実行する
+#     (手順は docs/aws.md §2)。
+#   AWS_PAID_RESOURCE_APPROVAL=<承認後にだけ合言葉を設定> \
+#   AWS_REGION="$AWS_REGION" RUN_ID=<RUN_ID> REQUEST_JSON=aws/launch.local.json NODE_LABEL=0 \
 #     bash aws/launch_after_approval.sh
 #
 # 読み取る環境変数:

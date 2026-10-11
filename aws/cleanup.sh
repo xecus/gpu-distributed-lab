@@ -64,9 +64,11 @@ aws ec2 wait instance-terminated --region "$AWS_REGION" --instance-ids "${instan
 
 # -----------------------------------------------------------------------------
 # 残ったリソースを報告する (削除はしない)
-#   DeleteOnTermination の設定漏れなどでボリュームや ENI が残ると課金が続くので、
+#   DeleteOnTermination の設定漏れなどでボリュームが残ると課金が続くので、
 #   一覧を表示して人間が確認する。タグのないリソースや共有リソースを
 #   機械的に削除するのは危険なので、決して自動では消さない。
+#   ※ plan.py は ENI にタグを付けないため、下の ENI 一覧は通常空になる。
+#     ENI の残存はタグ以外の条件 (サブネット等) で別途確認すること。
 # -----------------------------------------------------------------------------
 aws ec2 describe-volumes --region "$AWS_REGION" --filters "Name=tag:RunId,Values=$RUN_ID"
 aws ec2 describe-network-interfaces --region "$AWS_REGION" --filters "Name=tag:RunId,Values=$RUN_ID"

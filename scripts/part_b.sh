@@ -5,9 +5,11 @@
 # 使い方:
 #   bash scripts/part_b.sh <B01..B05> [追加引数]
 #
-#   例: TOKENS=data/train.bin MODEL_REVISION=<HF のコミット SHA> NODE_HOURLY_USD=98.32 \
+#   例: TOKENS=data/train.bin MODEL_REVISION=<HF のコミット SHA> \
+#         NODE_HOURLY_USD=<レビュー済みの1ノード時間単価> \
 #         bash scripts/part_b.sh B02
-#       NNODES=2 NODE_RANK=0 MASTER_ADDR=10.0.0.11 RUN_ID=exp1 ... bash scripts/part_b.sh B05
+#       NNODES=2 NODE_RANK=0 MASTER_ADDR=<node0のprivate IP> RUN_ID=<RUN_ID> ... \
+#         bash scripts/part_b.sh B05
 #
 # レッスン構成:
 #   B01-B03 : Qwen3 を lab.train で学習する (8B を DDP / ZeRO-3、32B を ZeRO-3 など)
@@ -18,12 +20,14 @@
 #
 # 読み取る環境変数:
 #   NNODES             : ノード数 (B04 は 1 のみ、B05 は 2〜5 が必須)
-#   NPROC              : 1 ノードあたりの GPU 数 (既定 8、GPU 総数の記録に使う)
+#   NPROC              : (B01-B03) 1 ノードあたりのプロセス数 = GPU 数 (既定 8)。
+#                        launch.sh に渡され、GPU 総数の記録にも使う。B04/B05 は 8 固定
 #   NODE_HOURLY_USD    : 1 ノード 1 時間あたりの料金 (コスト記録用。B01-B03 では必須)
 #   EXPERIMENT_TIMEOUT : 実験のタイムアウト秒数 (既定 3600)
 #   TOKENS             : (B01-B03 必須) 事前に作ったトークン列 train.bin のパス
 #   MODEL_REVISION     : (B01-B03 必須) Hugging Face モデルのコミット SHA (再現性のため固定)
-#   MODE               : 並列化モード (既定 zero3)。B01 では B01_MODE (既定 ddp) が優先される
+#   MODE               : B02/B03 の並列化モード (既定 zero3)。B01 では MODE は無視され、
+#                        B01_MODE (既定 ddp。zero1/zero2/zero3 も可) を使う
 #   ACCUM              : 勾配累積ステップ数 (既定 2)
 #   その他、launch.sh が読む環境変数 (NODE_RANK, MASTER_ADDR, RUN_ID など)
 # =============================================================================
@@ -93,14 +97,15 @@ fi
 MODE=${MODE:-zero3}
 
 case "$lesson" in
-  # B01: 8B モデルを DDP で学習 (既定)。各 GPU にモデル全体を載せるので、
-  #      メモリ不足 (OOM) になるかどうかを観察するレッスン。
+  # B01: 8B の全パラメータ学習。B01_MODE で ddp(既定)/zero1/zero2/zero3 を切り替え、
+  #      どのステージで OOM になるか (どこまで分割すれば収まるか) を測る。
   B01)
     model=Qwen/Qwen3-8B
     MODE=${B01_MODE:-ddp}
     ;;
 
-  # B02: 8B モデルを ZeRO-3 (既定) で学習。B01 との比較でメモリ削減効果を見る。
+  # B02: 8B を B01 で収まったステージ (MODE、既定 zero3) に固定し、
+  #      8 GPU と 16 GPU で Strong/Weak Scaling を測る。
   B02) model=Qwen/Qwen3-8B ;;
 
   # B03: 32B モデルを ZeRO-3 (既定) で学習。より大きなモデルを複数 GPU に分割する。
@@ -127,7 +132,8 @@ done
 #   --seq 256 --batch 1     : 系列長・バッチを小さくしてメモリを節約
 #   --accum                 : 勾配累積で実効バッチサイズを稼ぐ
 #   --activation-checkpointing : 活性値を保存せず逆伝播時に再計算してメモリを節約
-#   --save-every 50         : 途中でチェックポイントを保存 (保存/復元の時間も計測できる)
+#   --save-every 50         : 途中でチェックポイントを保存
+#                             (失敗しても再開でき、checkpoint 容量も確認できる)
 exec python scripts/run_record.py --id "$lesson" --out "$out" --nodes "${NNODES:-1}" \
   --gpus "$(( ${NPROC:-8} * ${NNODES:-1} ))" --hourly-usd "${NODE_HOURLY_USD:-0}" --timeout "${EXPERIMENT_TIMEOUT:-3600}" -- \
   bash scripts/launch.sh lab.train --mode "$MODE" --model "$model" --revision "$MODEL_REVISION" --tokens "$TOKENS" \

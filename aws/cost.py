@@ -15,7 +15,7 @@
 注意:
     タグで費用を絞り込むには、事前に請求コンソールで RunId を
     「コスト配分タグ」として有効化しておく必要がある (有効化前の費用はタグで拾えない)。
-    また直近数日分は確定値ではなく見積もり値 (estimated 列が True) になる。
+    また請求月が締まるまでの費用は見積もり値 (estimated 列が True) で、後で変わり得る。
 """
 import argparse,subprocess,json,csv
 from pathlib import Path
@@ -38,7 +38,8 @@ f={'Tags':{'Key':'RunId','Values':[a.run_id],'MatchOptions':['EQUALS']}}
 
 # aws CLI で Cost Explorer を呼ぶ。
 #   - 日別 (DAILY) の非ブレンドコスト (UnblendedCost = 実際に請求される単価ベースの金額)
-#   - サービス (EC2, EBS など) ごとにグループ化
+#   - サービスごとにグループ化 (例: Amazon Elastic Compute Cloud - Compute、
+#     EBS 等を含む EC2 - Other)
 cmd=[
     'aws','ce','get-cost-and-usage','--region','us-east-1',
     '--time-period',f'Start={a.start},End={a.end}',

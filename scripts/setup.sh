@@ -9,7 +9,7 @@
 #
 # 使い方 (リポジトリのルートで):
 #   bash scripts/setup.sh
-#   PYTHON=/usr/bin/python3.11 bash scripts/setup.sh   # 別の Python を使う場合
+#   PYTHON=python3.11 bash scripts/setup.sh   # 別の Python を使う場合
 #
 # 前提:
 #   承認済みで起動中の DLAMI (Deep Learning AMI) 上で実行する。
@@ -90,5 +90,6 @@ python -m pip install -e . --no-deps
 mkdir -p runs
 python -m pip freeze > runs/pip-freeze.txt
 
-# 最終確認: GPU 8 枚・ドライバ・NCCL などが使える状態か。
+# 最終確認: GPU 数 (8 枚以上) と pip の依存整合性を確認し、
+# nvidia-smi / topo / fi_info / df の結果を runs/preflight.json に記録する。
 python scripts/preflight.py --require-gpus 8
