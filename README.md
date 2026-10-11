@@ -8,7 +8,7 @@ AWSの8GPUノード（H100 / H200 / B200）を使い、分散学習を**手を�
 - 最大構成：8GPUノード × 5台 = 40GPU
 
 > [!WARNING]
-> **現状はCPU上の検証のみです。** GPU・EFA・実モデルweightでの学習はまだ実行していません。
+> **GPUでの検証は途中です。** H100×8の単一ノードで受け入れテストの一部（A02、A04〜A10）が通った段階で、EFA・マルチノード・実モデルweightでの学習はまだ実行していません。
 > 期待結果はすべて理論上の仮説で、`results/experiment_results.csv`の実測欄は空です。
 > 検証済みの範囲と未検証の範囲は[docs/validation.md](docs/validation.md)にまとめています。
 
@@ -110,39 +110,56 @@ Ubuntu 24.04以降のDLAMIなら標準リポジトリで入ります。22.04ベ�
 
 #### CUDA 12.8 Toolkit
 
-DeepSpeedはimport時に`nvcc`の存在とCUDAメジャー版（PyTorchのcu128と同じ12）を確認し、初回にFusedAdamをJITビルドします。
+DeepSpeedはimport時に`nvcc`があるかを確認し、初回にFusedAdamをJITビルドします。ビルド時にはnvccとPyTorch（cu128）のCUDAメジャー版が一致している必要があるため、CUDA 13のnvccでは動きません。
 DLAMIに`/usr/local/cuda-12.8`がない場合（デフォルトがCUDA 13のDLAMIなど）は、NVIDIAのrunfileでToolkitだけを入れます。
 
 ```bash
 wget https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda_12.8.1_570.124.06_linux.run
+# Ubuntu 26.04などlibxml2.so.2がない（libxml2.so.16のみ）環境ではインストーラが起動しないため、
+# インストール中だけ一時的にリンクを張る（ABIが異なるので終わったら必ず消す）
+XML2=/usr/lib/x86_64-linux-gnu/libxml2.so.2
+TMP_XML=
+if [ ! -e "$XML2" ]; then sudo ln -s libxml2.so.16 "$XML2"; TMP_XML=1; fi
 sudo sh cuda_12.8.1_570.124.06_linux.run --silent --toolkit --toolkitpath=/usr/local/cuda-12.8 --no-man-page --override
+if [ -n "$TMP_XML" ]; then sudo rm "$XML2"; sudo ldconfig; fi
 /usr/local/cuda-12.8/bin/nvcc --version   # release 12.8
+nvidia-smi | head -4                      # ドライバの版が変わっていないこと
 ```
 
 `--toolkit`のみを指定するとドライバには触れません（`--override`はgcc版チェックを飛ばすため）。
 
-Ubuntu 26.04では`libxml2.so.2`がなく（`libxml2.so.16`のみ）、インストーラが起動しません。
-その場合はインストール中だけ一時的にリンクを張り、終わったら必ず消してください（ABIが異なるため常設しない）。
+`launch.sh`は`CUDA_HOME`が未設定なら`/usr/local/cuda-12.8`を優先して使います。
+またシステムのgccが15以上（Ubuntu 26.04など）なら、FusedAdamのJITビルドがnvcc 12.8の対応範囲（GCC 14まで）に収まるよう、次の環境変数を自動で設定します。
+
+| 変数 | 効き先 |
+|---|---|
+| `CC=gcc-14` | Tritonのヘルパービルド、torch cpp_extension（nvccへ`-ccbin`として渡す） |
+| `CXX=g++-14` | torch cpp_extensionの`.cpp`ファイルのコンパイル |
+| `NVCC_PREPEND_FLAGS="-ccbin g++-14"` | nvcc本体が直接読む。torchの受け渡しに依存せずホストコンパイラを固定する |
+
+`launch.sh`を通さずに`torchrun`や`python -m lab.train`を直接実行する場合は、同じ設定を手動で行ってください。
 
 ```bash
-sudo ln -s libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2
-sudo sh cuda_12.8.1_570.124.06_linux.run --silent --toolkit --toolkitpath=/usr/local/cuda-12.8 --no-man-page --override
-sudo rm /usr/lib/x86_64-linux-gnu/libxml2.so.2 && sudo ldconfig
+export CC=gcc-14 CXX=g++-14 NVCC_PREPEND_FLAGS="-ccbin g++-14"
 ```
-`launch.sh`は`CUDA_HOME`が未設定なら`/usr/local/cuda-12.8`を優先して使い、`gcc-14`があれば`CC=gcc-14 CXX=g++-14`を設定します。
+
+gcc 15のままビルドに失敗した場合は、残ったビルド結果を消してから再実行します（`rm -rf ~/.cache/torch_extensions/py312_cu128/fused_adam`）。
 
 > **Ubuntu標準の`nvidia-cuda-toolkit`はaptで入れないでください。** Ubuntu版のNVIDIAユーザー空間ライブラリが入り、DLAMIのカーネルドライバと版がずれて`nvidia-smi`が`Driver/library version mismatch`になります。
 
 そのあと:
 
 ```bash
-bash scripts/setup.sh            # venv作成、CUDA 12.8版PyTorch、preflight
+bash scripts/setup.sh            # 前提条件の確認、venv作成、CUDA 12.8版PyTorch、preflight
 source .venv/bin/activate
-bash scripts/acceptance.sh       # 全モードの短い受け入れテスト
+bash scripts/acceptance.sh       # 全モードの短い受け入れテスト（前回の出力とビルドキャッシュを消してから実行）
 bash scripts/part_a.sh A01
 bash scripts/part_a.sh A02 --steps 30 --warmup 5
 NPROC=2 bash scripts/part_a.sh A04 --iters 10 --max-power 22
 ```
+
+`acceptance.sh`は毎回`runs/acceptance/`、torch拡張のビルドキャッシュ（`~/.cache/torch_extensions`）、Tritonのキャッシュ（`~/.triton/cache`）を消してから始めるため、初回はFusedAdamのビルドに数分かかります。
+キャッシュを残したい場合は`KEEP_CACHE=1 bash scripts/acceptance.sh`としてください（`runs/acceptance/`は常に消します）。
 
 全19実験をまとめて自動実行する仕組みはあえて用意していません。
 1つずつ短く試し、予算と結果を見ながら規模を広げてください。
@@ -183,7 +200,7 @@ tests/        CPUで動く単体・統合テスト
 
 - `configs/revisions.lock.json`に、モデル・データセット・GR00Tのcommit SHAを固定しています。
 - 基礎実験とQwenはPyTorch 2.7.1を使います。GR00Tは公式リポジトリの`uv.lock`を使い、別の環境で動かします。
-- `requirements.txt`は候補として固定した依存構成です。GPU上での受け入れ確認はまだ済んでいません。
+- `requirements.txt`は候補として固定した依存構成です。GPU上での受け入れ確認は途中です（[docs/validation.md](docs/validation.md)）。
 - 各runについて、HF revision、データのSHA256、pip freeze、EFA/OFIのバージョンを記録します。
 
 ## スコープ外

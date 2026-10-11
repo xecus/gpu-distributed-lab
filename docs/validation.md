@@ -13,10 +13,22 @@
 テスト結果：7 tests、6 passed、1 skipped。結果logは`results/cpu_validation.log`。
 CPUのQwen testは8B/32Bの公開weightの学習ではなく、実モデル用コード経路を同architectureのtiny modelで検証したもの。
 
+## GPU単一ノードでの部分的な受け入れ：2026-10-11
+
+H100×8（p5.48xlarge）1台、Ubuntu 26.04ベースのDLAMI、PyTorch 2.7.1+cu128、CUDA 12.8 Toolkit（runfile）、gcc-14で`scripts/acceptance.sh`を実行。
+
+- 通過：preflight（GPU 8、NVLink NV18）、A02、A04（collectives）、A05（ring）、A06、A07、A08〜A10（ZeRO-1/2/3、FusedAdamのJITビルドを含む）の各4 stepとcheckpoint保存。
+- 失敗→修正済み・未再検証：A11（FSDP）のcheckpoint保存。torch 2.7で`LocalStateDictConfig(offload_to_cpu=True)`が失敗するため、offloadをやめた。
+- 未到達：A12（TP）、保存再開のループ、`lab.tp_check`。
+- `fi_info -p efa`はproviderを返さなかった。単一ノードの実行には影響しないが、マルチノード前に要確認。
+
+途中で見つかった環境の問題（Python.h、CUDA 12.8 Toolkit、gcc 15、ドライバの版ずれ）はREADMEとsetup.sh/launch.shに反映した。
+
 ## 未実行のこと
 
-- AWS EC2/EBS/FSx/NAT等の有料リソース起動。
-- H100/H200/B200上でのCUDA BF16、NCCL/OFI/EFA、DeepSpeed ZeRO、FSDP、TPの実行。
+- AWS EC2/EBS/FSx/NAT等の有料リソースを、このリポジトリのスクリプトで起動すること。
+- 受け入れテストの残り（A11再検証、A12、保存再開、TP parity）。
+- H200/B200上での実行、NCCL/OFI/EFAとマルチノード。
 - Qwen3-8B/32B公開weightを使うFull Fine-tuning。
 - GR00T weightの取得/学習/Action評価、および16〜40GPU runtime verification。
 
