@@ -17,7 +17,7 @@
 | p6-b200.48xlarge | B200 180GB×8 | 8 | Blackwell。CUDA 12.8以上必須 |
 
 EFA数は承認前に`describe-instance-types`の`NetworkInfo.MaximumNetworkCards`で確認し、違えば`--network-cards`で上書き。
-B200はCUDA 12.8+のPyTorch wheel（setup.shはcu128を使用）とBlackwell対応driver/DLAMIが必要。DeepSpeedのFusedAdamはJIT buildなのでnvccも12.8以上にする。
+B200はCUDA 12.8+のPyTorch wheel（setup.shはcu128を使用）とBlackwell対応driver/DLAMIが必要。DeepSpeedのFusedAdamはJIT buildなので、PyTorch（cu128）と同じメジャー版のnvcc 12.8が必要（CUDA 13のnvccは不可）。
 GPUメモリが違うのでOOMの境界、MFU用のpeak TFLOPS（`scaling.py --peak-bf16-tflops-per-gpu`）、ノード単価はインスタンスごとに変える。異なる種別の結果を同じ表で直接比較しない。
 
 同一AZ、同一Subnet、cluster placement group、EFA対応のDLAMI。
@@ -47,8 +47,11 @@ aws ec2 describe-images --owners amazon --region "$AWS_REGION" \
   --query 'Images[].{Id:ImageId,Name:Name,Date:CreationDate,Root:RootDeviceName}'
 ```
 
-DLAMIのベースOSはPython3.12、CUDA12.8とdriver互換性を満たすものを選ぶ。
+DLAMIはCUDA12.8とdriver互換性を満たすものを選ぶ。setup.shはデフォルトでpython3.12を使う（`PYTHON=...`で3.10以上の別のPythonを指定可）。
+必要なaptパッケージとCUDA 12.8 Toolkitの入れ方はREADMEの「GPUノードで実行する」を参照（デフォルトがCUDA 13のDLAMIでは12.8のToolkitを別途入れる）。
 Base DLAMIに必要なPythonがなければ承認済みホストでインストールする。GPU driverを不用意に置換しない。
+特にUbuntu標準の`nvidia-cuda-toolkit`をaptで入れると、NVIDIAのユーザー空間ライブラリが入れ替わり`Driver/library version mismatch`になる。
+unattended-upgradesがNVIDIA関連パッケージ（Fabric Managerなど）を更新すると、同様にドライバとの版がずれることがある。短期の実験ノードでは無効化するか、NVIDIA関連とカーネルを更新対象から外す。
 既存CUDAが違う場合は選択したDLAMIの公式手順に従い、まず受け入れテストでwheelとOFI pluginの相性を確認。
 AMI IDを固定値で教材に埋め込まない。
 
@@ -107,7 +110,7 @@ root device名はAMIのRootDeviceNameへ合わせてJSONをレビューする。
 
 ## 3. Python/CUDA/NCCL/EFA
 
-各ノードで：
+各ノードで（READMEのaptパッケージとCUDA 12.8 Toolkitを入れた後）：
 ```bash
 cd gpu-distributed-lab
 bash scripts/setup.sh
@@ -119,7 +122,7 @@ nvidia-smi -L
 nvidia-smi topo -m
 python -m pip check
 python -c 'import torch; print(torch.__version__,torch.version.cuda,torch.cuda.nccl.version())'
-rg --files /opt/amazon /opt/aws-ofi-nccl 2>/dev/null | rg 'nccl-net'
+find /opt/amazon /opt/aws-ofi-nccl -name '*nccl-net*' 2>/dev/null
 bash scripts/acceptance.sh
 ```
 

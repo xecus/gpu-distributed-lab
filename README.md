@@ -8,7 +8,7 @@ AWSの8GPUノード（H100 / H200 / B200）を使い、分散学習を**手を�
 - 最大構成：8GPUノード × 5台 = 40GPU
 
 > [!WARNING]
-> **現状はCPU上の検証のみです。** GPU・EFA・実モデルweightでの学習はまだ実行していません。
+> **GPUでの検証は途中です。** H100×8の単一ノードで受け入れテスト（`scripts/acceptance.sh`）が通った段階で、EFA・マルチノード・実モデルweightでの学習はまだ実行していません。
 > 期待結果はすべて理論上の仮説で、`results/experiment_results.csv`の実測欄は空です。
 > 検証済みの範囲と未検証の範囲は[docs/validation.md](docs/validation.md)にまとめています。
 
@@ -89,16 +89,77 @@ OMP_NUM_THREADS=1 python -m unittest discover -s tests -v
 
 ### 2. GPUノードで実行する
 
-まず[docs/aws.md](docs/aws.md)の手順でノードを用意します（IAM、EFA、セキュリティグループ、DLAMI）。そのあと:
+まず[docs/aws.md](docs/aws.md)の手順でノードを用意します（IAM、EFA、セキュリティグループ、DLAMI）。
+`setup.sh`はデフォルトで`python3.12`を使います（`PYTHON=python3.11 bash scripts/setup.sh`のように変更可）。
+ノードに次のaptパッケージが入っていることを確認してください。
+
+| パッケージ | 用途 |
+|---|---|
+| `python3.12` | venvのベースになるPython |
+| `python3.12-venv` | `python3.12 -m venv`に必要 |
+| `python3.12-dev` | `Python.h`。DeepSpeed import時にTritonがCヘルパーをJITコンパイルするため必須 |
+| `build-essential` | Tritonのコンパイルに使う`gcc` |
+| `gcc-14` `g++-14` | システムのgccが15以上の場合（Ubuntu 26.04など）。CUDA 12.8のnvccはGCC 14までしか対応しないため、DeepSpeed FusedAdamのJITビルドで使う |
 
 ```bash
-bash scripts/setup.sh            # venv作成、CUDA 12.8版PyTorch、preflight
+sudo apt-get update
+sudo apt-get install -y python3.12 python3.12-venv python3.12-dev build-essential gcc-14 g++-14
+```
+
+Ubuntu 24.04以降のDLAMIなら標準リポジトリで入ります。22.04ベースでは`python3.12`が標準にないため、承認済みの手順で追加してください。
+
+#### CUDA 12.8 Toolkit
+
+DeepSpeedはimport時に`nvcc`があるかを確認し、初回にFusedAdamをJITビルドします。ビルド時にはnvccとPyTorch（cu128）のCUDAメジャー版が一致している必要があるため、CUDA 13のnvccでは動きません。
+DLAMIに`/usr/local/cuda-12.8`がない場合（デフォルトがCUDA 13のDLAMIなど）は、NVIDIAのrunfileでToolkitだけを入れます。
+
+```bash
+wget https://developer.download.nvidia.com/compute/cuda/12.8.1/local_installers/cuda_12.8.1_570.124.06_linux.run
+# Ubuntu 26.04などlibxml2.so.2がない（libxml2.so.16のみ）環境ではインストーラが起動しないため、
+# インストール中だけ一時的にリンクを張る（ABIが異なるので終わったら必ず消す）
+XML2=/usr/lib/x86_64-linux-gnu/libxml2.so.2
+TMP_XML=
+if [ ! -e "$XML2" ]; then sudo ln -s libxml2.so.16 "$XML2"; TMP_XML=1; fi
+sudo sh cuda_12.8.1_570.124.06_linux.run --silent --toolkit --toolkitpath=/usr/local/cuda-12.8 --no-man-page --override
+if [ -n "$TMP_XML" ]; then sudo rm "$XML2"; sudo ldconfig; fi
+/usr/local/cuda-12.8/bin/nvcc --version   # release 12.8
+nvidia-smi | head -4                      # ドライバの版が変わっていないこと
+```
+
+`--toolkit`のみを指定するとドライバには触れません（`--override`はgcc版チェックを飛ばすため）。
+
+`launch.sh`は`CUDA_HOME`が未設定なら`/usr/local/cuda-12.8`を優先して使います。
+またシステムのgccが15以上（Ubuntu 26.04など）なら、FusedAdamのJITビルドがnvcc 12.8の対応範囲（GCC 14まで）に収まるよう、次の環境変数を自動で設定します。
+
+| 変数 | 効き先 |
+|---|---|
+| `CC=gcc-14` | Tritonのヘルパービルド、torch cpp_extension（nvccへ`-ccbin`として渡す） |
+| `CXX=g++-14` | torch cpp_extensionの`.cpp`ファイルのコンパイル |
+| `NVCC_PREPEND_FLAGS="-ccbin g++-14"` | nvcc本体が直接読む。torchの受け渡しに依存せずホストコンパイラを固定する |
+
+`launch.sh`を通さずに`torchrun`や`python -m lab.train`を直接実行する場合は、同じ設定を手動で行ってください。
+
+```bash
+export CC=gcc-14 CXX=g++-14 NVCC_PREPEND_FLAGS="-ccbin g++-14"
+```
+
+gcc 15のままビルドに失敗した場合は、残ったビルド結果を消してから再実行します（`rm -rf ~/.cache/torch_extensions/py312_cu128/fused_adam`）。
+
+> **Ubuntu標準の`nvidia-cuda-toolkit`はaptで入れないでください。** Ubuntu版のNVIDIAユーザー空間ライブラリが入り、DLAMIのカーネルドライバと版がずれて`nvidia-smi`が`Driver/library version mismatch`になります。
+
+そのあと:
+
+```bash
+bash scripts/setup.sh            # 前提条件の確認、venv作成、CUDA 12.8版PyTorch、preflight
 source .venv/bin/activate
-bash scripts/acceptance.sh       # 全モードの短い受け入れテスト
+bash scripts/acceptance.sh       # 全モードの短い受け入れテスト（前回の出力とビルドキャッシュを消してから実行）
 bash scripts/part_a.sh A01
 bash scripts/part_a.sh A02 --steps 30 --warmup 5
 NPROC=2 bash scripts/part_a.sh A04 --iters 10 --max-power 22
 ```
+
+`acceptance.sh`は毎回`runs/acceptance/`、torch拡張のビルドキャッシュ（`~/.cache/torch_extensions`）、Tritonのキャッシュ（`~/.triton/cache`）を消してから始めるため、初回はFusedAdamのビルドに数分かかります。
+キャッシュを残したい場合は`KEEP_CACHE=1 bash scripts/acceptance.sh`としてください（`runs/acceptance/`は常に消します）。
 
 全19実験をまとめて自動実行する仕組みはあえて用意していません。
 1つずつ短く試し、予算と結果を見ながら規模を広げてください。
@@ -115,18 +176,79 @@ NPROC=2 bash scripts/part_a.sh A04 --iters 10 --max-power 22
 ## リポジトリ構成
 
 ```
-lab/          学習・通信の本体
-  model.py      Attention・MLPまで見える自作Transformer と TP適用
-  train.py      single/manual/DDP/ZeRO/FSDP/TP 共通の学習ループ・計測・保存・復元
-  ring.py       P2Pで書いたRing AllReduce（教育用）
-  collectives.py  AllReduce/AllGather/ReduceScatter ベンチマーク
-scripts/      実験ごとの入口（part_a.sh / part_b.sh）、起動、集計、GR00T連携
-aws/          起動プラン生成、承認ガード付き起動、コスト照合、後片付け
-configs/      DeepSpeed設定、モデル・データのcommit固定
-docs/         理論・運用ドキュメントと19本の教材
-results/      比較表（未実測）、CPU検証ログ、GR00T静的監査結果
-tests/        CPUで動く単体・統合テスト
+gpu-distributed-lab/
+├── README.md
+├── LICENSE
+├── pyproject.toml            パッケージ定義（lab/ を pip install -e . で使う）
+├── requirements.txt          固定した依存パッケージ（torchは setup.sh が cu128 版を入れる）
+│
+├── lab/                      学習・通信の本体（Pythonパッケージ）
+│   ├── model.py              Attention・MLPまで見える自作Transformer と TP適用（apply_tp）
+│   ├── train.py              single/manual/DDP/ZeRO/FSDP/TP 共通の学習ループ・計測・保存・再開
+│   ├── cuda_basics.py        A01：GPU情報とFP32/BF16 matmulの計測
+│   ├── collectives.py        A04：AllReduce/AllGather/ReduceScatter のベンチマーク
+│   ├── ring.py               A05：P2Pで書いたRing AllReduce（教育用）
+│   ├── tp_check.py           A12：TPと非分割モデルのforward/勾配/更新の一致確認
+│   ├── prepare_data.py       JSONL → 決定的な分割と uint32 token memmap
+│   ├── evaluate.py           HFモデル・LoRA adapterのheld-out評価
+│   ├── export.py             single/DDPのcheckpoint → HF形式
+│   └── fsdp_export.py        FSDPの全rank checkpoint → HF形式（torchrunで実行）
+│
+├── scripts/                  実験の入口と補助ツール
+│   ├── setup.sh              前提条件の確認、venv作成、依存インストール、preflight
+│   ├── preflight.py          GPU数・CUDA/torch版・トポロジ・EFA・pip check の確認
+│   ├── acceptance.sh         全モードの短い受け入れテスト（保存・再開、TP parity含む）
+│   ├── launch.sh             torchrunの共通起動口（CUDA_HOME・gcc-14の設定、マルチノード対応）
+│   ├── part_a.sh             Part A（A01〜A14）の入口
+│   ├── part_b.sh             Part B（B01〜B05）の入口
+│   ├── efa_env.sh            EFA/OFI用の環境変数（source して使う）
+│   ├── monitor.sh            nvidia-smi を1秒ごとにCSVへ記録
+│   ├── batch_sweep.py        A03：1/2/4/8 GPUのstrong/weak scaling sweep
+│   ├── run_record.py         タイムアウト付きで実行し ok/OOM/error を記録
+│   ├── summary.py            1 runのstep時間・tokens/s・メモリ・推定コストを集計
+│   ├── scaling.py            複数runからscaling効率とMFUを計算
+│   ├── trace_stats.py        profiler traceからNCCLカーネルの時間を集計
+│   ├── collate.py            runs/ 以下を results/experiment_results.csv と同じ形式に集約
+│   ├── download_models.py    固定commitのモデルを取得
+│   ├── download_corpus.py    公開コーパスの取得
+│   ├── resolve_revisions.py  モデル・上流リポジトリのcommitを調べて lock に記録
+│   └── groot_*.py / groot_setup.sh   GR00T（B04/B05）の環境構築・実行・評価・静的監査
+│
+├── aws/                      AWS操作（承認ガード付き）
+│   ├── plan.py               起動リクエストJSONを書き出すだけ（AWS APIは呼ばない）
+│   ├── launch_after_approval.sh  明示的な承認の環境変数がないと起動を拒否、1回1台
+│   ├── cleanup.sh            RUN_IDのインスタンス一覧（--terminate-confirmed で終了）
+│   ├── cost.py               Cost Explorerで実費を照合（読み取りのみ）
+│   └── *.json                IAM信頼関係・S3ポリシーの例
+│
+├── configs/
+│   ├── zero1.json / zero2.json / zero3.json   DeepSpeed ZeRO設定
+│   ├── experiments.json      各実験のGPU実行状況（status）
+│   └── revisions.lock.json   モデル・データ・GR00Tのcommit SHA
+│
+├── docs/
+│   ├── validation.md         検証済み・未検証の範囲
+│   ├── aws.md                インスタンス選択、IAM、ネットワーク、EFA、課金、後片付け
+│   ├── theory.md             データ並列・モデル並列とメモリ見積もり
+│   ├── measurement.md        計測とcheckpointの公平な比較条件
+│   ├── data_and_real_models.md   公開モデル・データ・VLA評価
+│   ├── sources.md            参照元とライセンスのリンク
+│   └── lessons/A01.md〜B05.md   19本の教材
+│
+├── data/example.jsonl.example   学習データ（JSONL）の形式例
+├── results/                  比較表（実測欄は空）、CPU検証ログ、GR00T静的監査結果
+└── tests/                    CPUで動く単体・統合テスト
 ```
+
+実行すると次のものが作られます（いずれも`.gitignore`対象）。
+
+| パス | 中身 |
+|---|---|
+| `.venv/` | `setup.sh`が作るPython環境 |
+| `runs/` | 各実験の出力（metrics CSV、環境JSON、checkpoint、preflight結果）。受け入れテストは`runs/acceptance/` |
+| `third_party/` | GR00Tの上流リポジトリ |
+| `data/*.jsonl`、`data/**/*.bin` | ダウンロード・生成したデータとtoken memmap |
+| `~/.cache/torch_extensions/` | DeepSpeed FusedAdamのJITビルド結果（リポジトリ外） |
 
 ## 安全設計
 
@@ -139,7 +261,7 @@ tests/        CPUで動く単体・統合テスト
 
 - `configs/revisions.lock.json`に、モデル・データセット・GR00Tのcommit SHAを固定しています。
 - 基礎実験とQwenはPyTorch 2.7.1を使います。GR00Tは公式リポジトリの`uv.lock`を使い、別の環境で動かします。
-- `requirements.txt`は候補として固定した依存構成です。GPU上での受け入れ確認はまだ済んでいません。
+- `requirements.txt`は候補として固定した依存構成です。GPU上での受け入れ確認は途中です（[docs/validation.md](docs/validation.md)）。
 - 各runについて、HF revision、データのSHA256、pip freeze、EFA/OFIのバージョンを記録します。
 
 ## スコープ外

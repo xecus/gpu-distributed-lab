@@ -118,7 +118,9 @@ def main():
         import deepspeed
         engine,opt,_,_=deepspeed.initialize(model=model,model_parameters=[p for p in model.parameters() if p.requires_grad],config=ds_config)
         model=engine
-    else:opt=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=a.lr)
+    # TP mixes DTensor (sharded q/k/v/proj/fc1/fc2) and plain tensors (replicated embeddings, norms, head);
+    # the multi-tensor foreach kernels reject mixed lists, so update parameters one by one.
+    else:opt=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=a.lr,foreach=False if a.mode=='tp' else None)
     if a.mode=='manual' and active:
         for p in model.parameters():dist.broadcast(p.data,0)
     tokens=None
@@ -167,7 +169,9 @@ def main():
     def state_context():
         if a.mode=='fsdp':
             from torch.distributed.fsdp import StateDictType,LocalStateDictConfig,FullyShardedDataParallel as FSDP
-            return FSDP.state_dict_type(model,StateDictType.LOCAL_STATE_DICT,LocalStateDictConfig(offload_to_cpu=True))
+            # offload_to_cpu=True breaks on torch 2.7: ShardedTensor.cpu() drops requires_grad and fails
+            # its metadata check. torch.save copies the GPU shard to host anyway.
+            return FSDP.state_dict_type(model,StateDictType.LOCAL_STATE_DICT,LocalStateDictConfig())
         return contextlib.nullcontext()
     def bare():return model.module if a.mode=='ddp' else model # unwrap DDP: no 'module.' key prefix
     # Every rank writes its own shard (rank{r}.pt or DeepSpeed files) plus meta_rank{r}.json.
