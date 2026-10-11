@@ -200,9 +200,9 @@ def main():
 
     # 並列化ラッパーで包む前に、全パラメータ数 (LoRA で凍結した分も含む) を数えて
     # 環境 JSON に記録する。
-    # 注意: 実モデル + zero3 では from_pretrained 時点で既に分割済み (param.data が空) のため
-    # numel() が 0 になり、この値は正しくない (本来のサイズは p.ds_numel にある)。
-    params = sum(p.numel() for p in model.parameters())
+    # 実モデル + zero3 では from_pretrained 時点で既に分割済み (param.data が空) のため
+    # numel() が 0 になる。DeepSpeed が持たせる ds_numel (分割前の要素数) を優先して使う。
+    params = sum(getattr(p, 'ds_numel', p.numel()) for p in model.parameters())
 
     # =====================================================================
     # 並列化ラッパー
