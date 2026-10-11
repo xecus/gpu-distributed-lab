@@ -176,18 +176,79 @@ NPROC=2 bash scripts/part_a.sh A04 --iters 10 --max-power 22
 ## リポジトリ構成
 
 ```
-lab/          学習・通信の本体
-  model.py      Attention・MLPまで見える自作Transformer と TP適用
-  train.py      single/manual/DDP/ZeRO/FSDP/TP 共通の学習ループ・計測・保存・復元
-  ring.py       P2Pで書いたRing AllReduce（教育用）
-  collectives.py  AllReduce/AllGather/ReduceScatter ベンチマーク
-scripts/      実験ごとの入口（part_a.sh / part_b.sh）、起動、集計、GR00T連携
-aws/          起動プラン生成、承認ガード付き起動、コスト照合、後片付け
-configs/      DeepSpeed設定、モデル・データのcommit固定
-docs/         理論・運用ドキュメントと19本の教材
-results/      比較表（未実測）、CPU検証ログ、GR00T静的監査結果
-tests/        CPUで動く単体・統合テスト
+gpu-distributed-lab/
+├── README.md
+├── LICENSE
+├── pyproject.toml            パッケージ定義（lab/ を pip install -e . で使う）
+├── requirements.txt          固定した依存パッケージ（torchは setup.sh が cu128 版を入れる）
+│
+├── lab/                      学習・通信の本体（Pythonパッケージ）
+│   ├── model.py              Attention・MLPまで見える自作Transformer と TP適用（apply_tp）
+│   ├── train.py              single/manual/DDP/ZeRO/FSDP/TP 共通の学習ループ・計測・保存・再開
+│   ├── cuda_basics.py        A01：GPU情報とFP32/BF16 matmulの計測
+│   ├── collectives.py        A04：AllReduce/AllGather/ReduceScatter のベンチマーク
+│   ├── ring.py               A05：P2Pで書いたRing AllReduce（教育用）
+│   ├── tp_check.py           A12：TPと非分割モデルのforward/勾配/更新の一致確認
+│   ├── prepare_data.py       JSONL → 決定的な分割と uint32 token memmap
+│   ├── evaluate.py           HFモデル・LoRA adapterのheld-out評価
+│   ├── export.py             single/DDPのcheckpoint → HF形式
+│   └── fsdp_export.py        FSDPの全rank checkpoint → HF形式（torchrunで実行）
+│
+├── scripts/                  実験の入口と補助ツール
+│   ├── setup.sh              前提条件の確認、venv作成、依存インストール、preflight
+│   ├── preflight.py          GPU数・CUDA/torch版・トポロジ・EFA・pip check の確認
+│   ├── acceptance.sh         全モードの短い受け入れテスト（保存・再開、TP parity含む）
+│   ├── launch.sh             torchrunの共通起動口（CUDA_HOME・gcc-14の設定、マルチノード対応）
+│   ├── part_a.sh             Part A（A01〜A14）の入口
+│   ├── part_b.sh             Part B（B01〜B05）の入口
+│   ├── efa_env.sh            EFA/OFI用の環境変数（source して使う）
+│   ├── monitor.sh            nvidia-smi を1秒ごとにCSVへ記録
+│   ├── batch_sweep.py        A03：1/2/4/8 GPUのstrong/weak scaling sweep
+│   ├── run_record.py         タイムアウト付きで実行し ok/OOM/error を記録
+│   ├── summary.py            1 runのstep時間・tokens/s・メモリ・推定コストを集計
+│   ├── scaling.py            複数runからscaling効率とMFUを計算
+│   ├── trace_stats.py        profiler traceからNCCLカーネルの時間を集計
+│   ├── collate.py            runs/ 以下を results/experiment_results.csv と同じ形式に集約
+│   ├── download_models.py    固定commitのモデルを取得
+│   ├── download_corpus.py    公開コーパスの取得
+│   ├── resolve_revisions.py  モデル・上流リポジトリのcommitを調べて lock に記録
+│   └── groot_*.py / groot_setup.sh   GR00T（B04/B05）の環境構築・実行・評価・静的監査
+│
+├── aws/                      AWS操作（承認ガード付き）
+│   ├── plan.py               起動リクエストJSONを書き出すだけ（AWS APIは呼ばない）
+│   ├── launch_after_approval.sh  明示的な承認の環境変数がないと起動を拒否、1回1台
+│   ├── cleanup.sh            RUN_IDのインスタンス一覧（--terminate-confirmed で終了）
+│   ├── cost.py               Cost Explorerで実費を照合（読み取りのみ）
+│   └── *.json                IAM信頼関係・S3ポリシーの例
+│
+├── configs/
+│   ├── zero1.json / zero2.json / zero3.json   DeepSpeed ZeRO設定
+│   ├── experiments.json      各実験のGPU実行状況（status）
+│   └── revisions.lock.json   モデル・データ・GR00Tのcommit SHA
+│
+├── docs/
+│   ├── validation.md         検証済み・未検証の範囲
+│   ├── aws.md                インスタンス選択、IAM、ネットワーク、EFA、課金、後片付け
+│   ├── theory.md             データ並列・モデル並列とメモリ見積もり
+│   ├── measurement.md        計測とcheckpointの公平な比較条件
+│   ├── data_and_real_models.md   公開モデル・データ・VLA評価
+│   ├── sources.md            参照元とライセンスのリンク
+│   └── lessons/A01.md〜B05.md   19本の教材
+│
+├── data/example.jsonl.example   学習データ（JSONL）の形式例
+├── results/                  比較表（実測欄は空）、CPU検証ログ、GR00T静的監査結果
+└── tests/                    CPUで動く単体・統合テスト
 ```
+
+実行すると次のものが作られます（いずれも`.gitignore`対象）。
+
+| パス | 中身 |
+|---|---|
+| `.venv/` | `setup.sh`が作るPython環境 |
+| `runs/` | 各実験の出力（metrics CSV、環境JSON、checkpoint、preflight結果）。受け入れテストは`runs/acceptance/` |
+| `third_party/` | GR00Tの上流リポジトリ |
+| `data/*.jsonl`、`data/**/*.bin` | ダウンロード・生成したデータとtoken memmap |
+| `~/.cache/torch_extensions/` | DeepSpeed FusedAdamのJITビルド結果（リポジトリ外） |
 
 ## 安全設計
 
