@@ -1,0 +1,13 @@
+test_average_gradient_equals_global_batch (test_lab.TrainingTests.test_average_gradient_equals_global_batch) ... ok
+test_aws_guard (test_lab.TrainingTests.test_aws_guard) ... ok
+test_causal_and_gradients (test_lab.TrainingTests.test_causal_and_gradients) ... ok
+test_manual_matches_ddp (test_lab.TrainingTests.test_manual_matches_ddp) ... skipped 'container blocks Gloo TCP sockets; run on AWS host'
+test_plan_never_launches (test_lab.TrainingTests.test_plan_never_launches) ... ok
+test_resume_exact_and_loss (test_lab.TrainingTests.test_resume_exact_and_loss) ... ok
+test_qwen_training_path_and_csv (test_qwen_cpu.QwenCPUIntegration.test_qwen_training_path_and_csv) ... Sliding Window Attention is enabled but not implemented for `sdpa`; unexpected results may be encountered.
+ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 13.873s
+
+OK (skipped=1)

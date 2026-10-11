@@ -1,0 +1,15 @@
+{
+  "commit": "d2b7e75b937e3ec9aa5dbc798f08b89692c49734",
+  "checks": {
+    "WORLD_SIZE": true,
+    "LOCAL_RANK": true,
+    "NCCL_process_group": true,
+    "num_gpus_world_check": true,
+    "no_nested_spawn": true,
+    "trainer": true,
+    "resume_bool": true
+  },
+  "static_gate_passed": true,
+  "runtime_multinode_verified": false,
+  "paid_resources_started": false
+}

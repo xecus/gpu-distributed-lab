@@ -1,0 +1,8 @@
+{
+  "Qwen/Qwen3-8B": "b968826d9c46dd6066d109eabc6255188de91218",
+  "Qwen/Qwen3-32B": "9216db5781bf21249d130ec9da846c4624c16137",
+  "nvidia/GR00T-N1.7-3B": "2fc962b973bccdd5d8ce4f67cc63b264d6886495",
+  "Isaac-GR00T": "d2b7e75b937e3ec9aa5dbc798f08b89692c49734",
+  "nvidia/Cosmos-Reason2-2B": "9ce19a195e423419c349abfc86fd07178b230561",
+  "Salesforce/wikitext": "b08601e04326c79dfdd32d625aee71d232d685c3"
+}

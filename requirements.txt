@@ -1,0 +1,10 @@
+# Candidate baseline; validate on the chosen DLAMI before a paid long run.
+torch==2.7.1
+transformers==4.51.3
+peft==0.15.2
+accelerate==1.6.0
+deepspeed==0.16.7
+numpy==2.2.5
+huggingface-hub==0.30.2
+safetensors==0.5.3
+datasets==3.6.0

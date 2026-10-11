@@ -1,0 +1,7 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::REVIEWED_BUCKET", "Condition": {"StringLike": {"s3:prefix": ["gpu-lab/*"]}}},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": "arn:aws:s3:::REVIEWED_BUCKET/gpu-lab/*"}
+  ]
+}

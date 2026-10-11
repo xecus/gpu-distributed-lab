@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+[project]
+name = "gpu-distributed-lab"
+version = "0.1.0"
+description = "Hands-on distributed training lab on AWS 8-GPU nodes: DDP, ZeRO, FSDP, TP, multi-node EFA"
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+[tool.setuptools]
+packages = ["lab"]

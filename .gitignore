@@ -1,0 +1,20 @@
+# Python / local environment
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+.DS_Store
+
+# Experiment outputs (large, host-specific)
+runs/
+checkpoints/
+third_party/
+
+# Data (download / generate locally)
+data/**/*.bin
+data/*.jsonl
+
+# AWS: rendered plans and launch outputs contain account-specific IDs
+aws/launch.local.json
+aws/launched-*.json
