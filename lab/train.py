@@ -85,7 +85,7 @@ def main():
     # torchrun が RANK / WORLD_SIZE / LOCAL_RANK を環境変数で渡してくれる。
     # 既定値があるので、素の `python -m lab.train` でも 1 プロセスとして動く。
     #   rank  : 全プロセス中の通し番号 (0 .. world-1)
-    #   world : 全プロセス数 (= 使う GPU の総数)
+    #   world : 全プロセス数 (GPU 実行時は使う GPU の総数)
     #   local : このノード内での番号 (= 使う GPU の番号)
     rank = int(os.environ.get('RANK', 0))
     world = int(os.environ.get('WORLD_SIZE', 1))
@@ -153,7 +153,8 @@ def main():
 
         # FSDP: 実際の重みをロードするのは rank0 だけ。他の rank は 'meta' デバイス上に
         # 形だけのモデル (メモリを確保しない) を作り、FSDP の sync_module_states で
-        # rank0 から重みを受け取る。こうするとホスト RAM 上の重みは 8 コピーではなく 1 コピーで済む。
+        # rank0 から重みを受け取る。こうするとホスト RAM 上の重みは
+        # ノード内 GPU 数ぶん (例: 8) ではなく 1 コピーで済む。
         if a.mode == 'fsdp' and rank != 0:
             config = AutoConfig.from_pretrained(a.model, revision=a.revision)
             with torch.device('meta'):
@@ -197,7 +198,10 @@ def main():
         for i, b in enumerate(model.blocks):
             model.blocks[i] = checkpoint_wrapper(b)
 
-    # 並列化ラッパーで包む前に、全パラメータ数を数えておく (環境 JSON に記録)。
+    # 並列化ラッパーで包む前に、全パラメータ数 (LoRA で凍結した分も含む) を数えて
+    # 環境 JSON に記録する。
+    # 注意: 実モデル + zero3 では from_pretrained 時点で既に分割済み (param.data が空) のため
+    # numel() が 0 になり、この値は正しくない (本来のサイズは p.ds_numel にある)。
     params = sum(p.numel() for p in model.parameters())
 
     # =====================================================================
@@ -223,7 +227,9 @@ def main():
             ),
             # rank0 の重みを全 rank へ broadcast する (meta で作った rank はこれで重みを得る)
             sync_module_states=True,
-            # meta 上のモジュールを、中身未初期化のまま実デバイスに確保する
+            # meta テンソルを持つサブモジュールごとに FSDP が呼ぶ (だから recurse=False):
+            # 未初期化のまま実デバイスに確保し、値は sync_module_states で rank0 から上書きされる。
+            # rank0 や toy モデルには meta が無いので呼ばれない。
             param_init_fn=lambda module:module.to_empty(device=device,recurse=False),
             device_id=device,
             # 計算・勾配通信・バッファは BF16 で行う (マスター重みは FP32 のまま)
@@ -234,15 +240,19 @@ def main():
             ),
         )
     elif not a.mode.startswith('zero'):
-        # ZeRO では deepspeed.initialize がデバイス転送を行うので、それ以外のモードだけ移す。
+        # ZeRO は deepspeed.initialize、FSDP は device_id でデバイス転送されるので、
+        # それ以外のモードだけここで移す。
         model.to(device)
 
-    # Tensor parallel: 各層の重み行列を world 個に分割し、全 rank で 1 つの層を協調計算する。
+    # Tensor parallel: 各 Block の attention (q/k/v/proj) と MLP (fc1/fc2) の重みを world 個に
+    # 分割し、全 rank で 1 つの Block を協調計算する。embedding・norm・head は複製のまま。
     if a.mode == 'tp':
         if world < 2:
             raise ValueError('TP requires >=2 GPU processes')
         if a.model != 'toy':
             raise ValueError('TP lesson supports the toy model only')
+        # 注: 下のエラーメッセージは主語が逆。正しくは
+        # 「world size が FFN 次元 (4*dim) を割り切る必要がある」。
         if (4 * a.dim) % world:
             raise ValueError('FFN dim must divide world size')
         model = apply_tp(model, world)
@@ -262,10 +272,10 @@ def main():
             config=ds_config,
         )
         model = engine
-    # TP では DTensor (分割された q/k/v/proj/fc1/fc2) と通常の tensor (複製された
-    # embedding・norm・head) が混在する。multi-tensor の foreach カーネルは型の混ざった
-    # リストを受け付けないため、foreach=False で 1 パラメータずつ更新させる。
     else:
+        # TP では DTensor (分割された q/k/v/proj/fc1/fc2) と通常の tensor (複製された
+        # embedding・norm・head) が混在する。multi-tensor の foreach カーネルは型の混ざった
+        # リストを受け付けないため、foreach=False で 1 パラメータずつ更新させる。
         opt = torch.optim.AdamW(
             [p for p in model.parameters() if p.requires_grad],
             lr=a.lr,
@@ -303,7 +313,7 @@ def main():
 
     sampler_cache = {}
 
-    # バッチは (seed, step, micro, rank) だけで決まる「純粋関数」。
+    # バッチは (seed, step, micro, rank, world) だけで決まる決定的な関数 (TP では rank=0 扱い)。
     # dataloader の状態を保存しなくても、再開時にまったく同じデータ列を再現できる。
     def batch(step, micro):
         # TP の worker は全員「同じ」バッチを見る (1 つのモデルを分担して計算するため)。
@@ -323,7 +333,9 @@ def main():
                 drop_last=True,
             )
             per_rank = len(sampler)
-            # 通算で何サンプル目か → そこから epoch 番号を求める
+            # この rank が通算で何サンプル目か (rank ローカル) → そこから epoch 番号を求める。
+            # 注: per_rank が batch の倍数でないと、epoch 境界をまたぐバッチの末尾は
+            # 次 epoch ではなく現 epoch の先頭に折り返す (% per_rank) ため、数サンプルが重複する。
             offset = (step * a.accum + micro) * a.batch
             epoch = offset // per_rank
             # epoch ごとのシャッフル結果をキャッシュ (set_epoch で並びが変わる)
@@ -372,7 +384,8 @@ def main():
             )
             # LOCAL_STATE_DICT: 各 rank が自分のシャードだけを保存する (集約しないので速い)。
             # offload_to_cpu=True は torch 2.7 で壊れる: ShardedTensor.cpu() が requires_grad を
-            # 落としてメタデータ検証に失敗する。どのみち torch.save が GPU シャードをホストにコピーする。
+            # 落としてメタデータ検証に失敗する。
+            # どのみち torch.save が GPU シャードをホストにコピーする。
             return FSDP.state_dict_type(model,StateDictType.LOCAL_STATE_DICT,LocalStateDictConfig())
         return contextlib.nullcontext()
 
@@ -432,7 +445,8 @@ def main():
     # チェックポイント再開
     # =====================================================================
     start = 0
-    # world size・mode・データ・形状に影響する引数のどれかが変わっていたら再開を拒否する。
+    # world size・mode・コーパス SHA-256・モデル構成やデータ列を決める引数 (下のリスト) の
+    # どれかが変わっていたら再開を拒否する。lr・steps・warmup などは変更してよい。
     # (シャードの分割方法やデータ列が変わり、黙って誤った学習になるのを防ぐ)
     if a.resume:
         meta = json.loads((Path(a.resume) / f'meta_rank{rank}.json').read_text())
@@ -528,7 +542,9 @@ def main():
                     loss = F.cross_entropy(logits.reshape(-1, logits.shape[-1]), y.reshape(-1))
                 losses.append(loss.detach().float())
                 if engine:
-                    # DeepSpeed は勾配累積を内部で数え、accum 回目の step() でだけ実際に更新する。
+                    # DeepSpeed は engine.backward 内で loss を自動で 1/accum する
+                    # (下の手動割り算は不要)。また micro-step 数を数え、accum 回目の
+                    # step() でだけ optimizer 更新と zero_grad を行う。
                     engine.backward(loss)
                     engine.step()
                 else:
@@ -547,7 +563,6 @@ def main():
     # =====================================================================
     # 環境情報の記録
     # =====================================================================
-    # warmup 中も optimizer は更新する。steps は warmup を含む全更新回数を表す。
     meta = {
         'args': vars(a),
         'world': world,
@@ -596,7 +611,8 @@ def main():
             sync()
             elapsed = time.perf_counter() - t
 
-            # 同期処理と loss の集約は step 時間に含めない。下で全 rank の最大値を取る。
+            # 計測区間は update() と直後の cuda.synchronize まで (勾配通信は含む)。
+            # 開始前の barrier、この下の時間の MAX 集約、loss の all_reduce は step 時間に含めない。
             stats = torch.tensor([elapsed], device=device)
             if active:
                 dist.all_reduce(stats, op=dist.ReduceOp.MAX)
@@ -608,7 +624,11 @@ def main():
             # global batch: TP は全 rank が同じデータを見るので DP 数は 1 として数える。
             gb = a.batch * a.accum * (1 if a.mode == 'tp' else world)
 
-            # warmup 後のステップだけを記録する (初回のコンパイル・確保などのノイズを除く)。
+            # warmup 中も optimizer は更新する (記録しないだけ)。
+            # --steps は warmup を含む全更新回数。
+            # warmup 後のステップだけを記録し、CUDA/cuBLAS 初期化・NCCL 通信路確立・メモリ確保など
+            # の初回ノイズを除く。step は通算番号なので、warmup を過ぎた地点からの再開では
+            # 除外されない。
             if step >= a.warmup:
                 writer.writerow(dict(
                     step=step + 1,
