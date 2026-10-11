@@ -9,6 +9,16 @@ command -v "$PY" >/dev/null 2>&1 \
 # Triton JIT-compiles a C helper on first use (deepspeed import) and needs Python.h.
 "$PY" -c 'import os, sysconfig; assert os.path.exists(os.path.join(sysconfig.get_paths()["include"], "Python.h"))' \
   || { echo "Python.h missing; run: sudo apt-get install -y ${PY}-dev" >&2; exit 1; }
+# DeepSpeed needs a CUDA 12.x toolkit (nvcc) at import time; launch.sh auto-detects CUDA_HOME.
+NVCC="${CUDA_HOME:-/usr/local/cuda-12.8}/bin/nvcc"
+[ -x "$NVCC" ] || NVCC="$(command -v nvcc || true)"
+[ -n "$NVCC" ] && "$NVCC" --version | grep 'release 12\.' >/dev/null \
+  || { echo "CUDA 12.x toolkit (nvcc) not found; install the CUDA 12.8 runfile with --toolkit (see README) or set CUDA_HOME" >&2; exit 1; }
+# nvcc 12.8 supports host GCC <= 14; FusedAdam's JIT build needs gcc-14 when the system gcc is newer.
+if [ "$(gcc -dumpversion | cut -d. -f1)" -gt 14 ]; then
+  command -v g++-14 >/dev/null 2>&1 \
+    || { echo "system gcc is newer than 14; run: sudo apt-get install -y gcc-14 g++-14" >&2; exit 1; }
+fi
 "$PY" -m venv .venv || { echo "venv failed; try: sudo apt-get install -y ${PY}-venv" >&2; exit 1; }
 source .venv/bin/activate
 python -m pip install --upgrade pip
