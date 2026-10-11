@@ -47,7 +47,7 @@ aws ec2 describe-images --owners amazon --region "$AWS_REGION" \
   --query 'Images[].{Id:ImageId,Name:Name,Date:CreationDate,Root:RootDeviceName}'
 ```
 
-DLAMIのベースOSはPython3.12、CUDA12.8とdriver互換性を満たすものを選ぶ。
+DLAMIはCUDA12.8とdriver互換性を満たすものを選ぶ。setup.shはデフォルトでpython3.12を使う（`PYTHON=...`で3.10以上の別のPythonを指定可）。必要なaptパッケージはREADMEを参照。
 Base DLAMIに必要なPythonがなければ承認済みホストでインストールする。GPU driverを不用意に置換しない。
 既存CUDAが違う場合は選択したDLAMIの公式手順に従い、まず受け入れテストでwheelとOFI pluginの相性を確認。
 AMI IDを固定値で教材に埋め込まない。
